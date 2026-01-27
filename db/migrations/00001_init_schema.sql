@@ -1,26 +1,36 @@
 -- +goose Up
 -- +goose StatementBegin
 create table clients(
-    client_ID serial primary key,
+    client_id serial primary key,
     name varchar(50) not null,
     email varchar(254) not null,
-    phone varchar(25) check (phone ~ '^[\\+]?[0-9\\-\\s()]{7,25}$') not null
+    email_verified boolean not null default false,
+    phone varchar(25) check (phone ~ '^[\\+]?[0-9\\-\\s()]{7,25}$') not null,
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
 create table employees(
     employee_id serial primary key,
-    name varchar(50) not null
+    name varchar(50) not null,
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-create table fuel_types(
+create table fuels(
     fuel_id serial primary key,
     name varchar(50) not null,
     supplier varchar(50),
-    price money not null
+    price money not null,
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
@@ -29,7 +39,11 @@ create table orders(
     order_id serial primary key,
     distance integer not null,
     weight integer not null,
-    total_price money not null
+    total_price money not null,
+    status varchar(50) not null,
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
@@ -39,7 +53,10 @@ create table prices(
     cargo_type varchar(50) not null unique,
     cost money not null,
     weight integer not null,
-    distance integer not null
+    distance integer not null,
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
@@ -50,8 +67,11 @@ create table transports(
     model varchar(50) not null,
     license_plate varchar(10),
     payload_capacity integer not null,
-    fuel_id integer references fuel_types(fuel_id) not null,
+    fuel_id integer references fuels(fuel_id) not null,
     fuel_consumption integer not null
+    created_at timestamp default now(),
+    update_at timestamp default null,
+    deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
@@ -79,7 +99,7 @@ drop table clients;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-drop table fuel_types;
+drop table fuels;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
