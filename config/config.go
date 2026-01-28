@@ -18,7 +18,13 @@ var (
 )
 
 type Config struct {
-	DB DBConfig
+	DB     DBConfig
+	Server ServerConfig
+}
+
+type ServerConfig struct {
+	Port  string
+	HTTPS bool
 }
 
 type DBConfig struct {
@@ -40,8 +46,11 @@ func New() (Config, error) {
 		return Config{}, fmt.Errorf("can't load postgres config: %w", err)
 	}
 
+	cfg, _ := parseServerCfg()
+
 	return Config{
-		DB: dbcfg,
+		DB:     dbcfg,
+		Server: cfg,
 	}, nil
 }
 
@@ -69,5 +78,21 @@ func parseDBCfg() (DBConfig, error) {
 	if cfg.DB == "" {
 		return cfg, errors.New("POSTGRES_DB is not set, set it in the .env file")
 	}
+	return cfg, nil
+}
+
+func parseServerCfg() (ServerConfig, error) {
+	cfg := ServerConfig{
+		Port: os.Getenv("SERVER_PORT"),
+	}
+	https := os.Getenv("SERVER_HTTPS")
+	if https == "1" || https == "true" || https == "yes" {
+		cfg.HTTPS = true
+	}
+
+	if cfg.Port == "" {
+		cfg.Port = "8080"
+	}
+
 	return cfg, nil
 }
