@@ -14,14 +14,14 @@ type DB struct {
 	cfg     config.DBConfig
 }
 
-func New(ctx context.Context, cfg config.DBConfig) (*DB, error) {
+func New(ctx context.Context, cfg config.DBConfig) (DB, error) {
 	conn, err := pgx.Connect(ctx, getConnStr(cfg))
 	if err != nil {
-		return nil, fmt.Errorf("can't create database connection: %w", err)
+		return DB{}, fmt.Errorf("can't create database connection: %w", err)
 	}
 
 	quieries := generated.New(conn)
-	return &DB{
+	return DB{
 		queries: quieries,
 		cfg:     cfg,
 	}, nil
