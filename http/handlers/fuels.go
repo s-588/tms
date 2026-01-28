@@ -31,3 +31,13 @@ func UpdateFuelHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Update fuel in database
 	// TODO: Return updated fuel
 }
+
+func NewFuelPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new fuel type
+}
+
+func EditFuelPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch fuel data
+	// TODO: Return Templ page with form pre-filled with fuel data
+}

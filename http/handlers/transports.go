@@ -33,3 +33,14 @@ func UpdateTransportHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Update transport in database
 	// TODO: Return updated transport
 }
+
+func NewTransportPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new transport
+	// TODO: Include dropdowns for employees and fuel types
+}
+
+func EditTransportPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch transport data
+	// TODO: Return Templ page with form pre-filled with transport data
+}

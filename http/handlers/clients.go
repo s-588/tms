@@ -52,3 +52,13 @@ func AssignClientOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Replace all existing client-order associations with new ones
 	// TODO: Return success response
 }
+
+func NewClientPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new client
+}
+
+func EditClientPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch client data
+	// TODO: Return Templ page with form pre-filled with client data
+}

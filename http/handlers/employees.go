@@ -32,3 +32,13 @@ func UpdateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Update employee in database
 	// TODO: Return updated employee
 }
+
+func NewEmployeePageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new employee
+}
+
+func EditEmployeePageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch employee data
+	// TODO: Return Templ page with form pre-filled with employee data
+}

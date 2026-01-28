@@ -46,3 +46,14 @@ func AssignOrderTransportsHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Replace all existing order-transport associations with new ones
 	// TODO: Return success response
 }
+
+func NewOrderPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new order
+	// TODO: Include dropdowns for clients, available transports, etc.
+}
+
+func EditOrderPageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch order data including associated clients and transports
+	// TODO: Return Templ page with form pre-filled with order data
+}

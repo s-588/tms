@@ -31,3 +31,13 @@ func UpdatePriceHandler(w http.ResponseWriter, r *http.Request) {
 	// TODO: Update price in database
 	// TODO: Return updated price
 }
+
+func NewPricePageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Return Templ page with form to create a new price
+}
+
+func EditPricePageHandler(w http.ResponseWriter, r *http.Request) {
+	// TODO: Extract id from path parameters
+	// TODO: Fetch price data
+	// TODO: Return Templ page with form pre-filled with price data
+}
