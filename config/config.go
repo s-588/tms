@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/joho/godotenv"
 )
@@ -24,6 +25,12 @@ var (
 type Config struct {
 	DB     DBConfig
 	Server ServerConfig
+	Logger LoggerConfig
+}
+
+type LoggerConfig struct {
+	File  string
+	Level string
 }
 
 type ServerConfig struct {
@@ -50,11 +57,20 @@ func New() (Config, error) {
 		return Config{}, fmt.Errorf("can't load postgres config: %w", err)
 	}
 
-	cfg, _ := parseServerCfg()
+	cfg, err := parseServerCfg()
+	if err != nil {
+		return Config{}, fmt.Errorf("can't load server config: %w", err)
+	}
+
+	logcfg, err := parseLoggerCfg()
+	if err != nil {
+		return Config{}, fmt.Errorf("can't load logger config: %w", err)
+	}
 
 	return Config{
 		DB:     dbcfg,
 		Server: cfg,
+		Logger: logcfg,
 	}, nil
 }
 
@@ -96,6 +112,25 @@ func parseServerCfg() (ServerConfig, error) {
 
 	if cfg.Port == "" {
 		cfg.Port = DefaultServerConfig.Port
+	}
+
+	return cfg, nil
+}
+
+func parseLoggerCfg() (LoggerConfig, error) {
+	cfg := LoggerConfig{
+		Level: os.Getenv("LOG_LEVEL"),
+		File:  os.Getenv("LOG_FILE"),
+	}
+
+	// Don't check cfg.Level because logger already handles uknown levels.
+
+	if cfg.File == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return cfg, fmt.Errorf("can't assemble default log file path: %w", err)
+		}
+		cfg.File = filepath.Join(home, ".local", "share", "tms", "tms.log")
 	}
 
 	return cfg, nil
