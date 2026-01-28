@@ -1,0 +1,32 @@
+package template
+
+import "github.com/s-588/tms/models"
+
+templ ClientsTable(clients []models.Client){
+    @Table(ClientsColumns()){
+        for _, client := range clients{
+            @ClientRow(client)
+        }
+    }
+}
+
+func ClientsColumns() []string{
+    return []string{ "ID", "Name", "Email", "Phone", "Actions" }
+}
+
+templ ClientRow(client models.Client){
+     <td>client.ID</td>
+                    <td>client.Name</td>
+                    <td>client.Email</td>
+                    <td>client.Phone</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="button is-small is-info edit-btn" data-id="${user.id}">
+                                <span class="icon"><i class="fas fa-edit"></i></span>
+                            </button>
+                            <button class="button is-small is-danger delete-btn" data-id="${user.id}">
+                                <span class="icon"><i class="fas fa-trash"></i></span>
+                            </button>
+                        </div>
+                    </td>
+}

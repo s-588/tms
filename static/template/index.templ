@@ -1,0 +1,269 @@
+package template
+
+templ Index(){
+    @Head()
+    @Body()
+}
+
+templ Head(){
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transportation Management System</title>
+    <link rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+    </head>
+}
+
+templ Body(){
+    <body>
+        @PageHeader()
+        @MainPage()
+        @PageFooter()
+    </body>
+}
+
+templ PageHeader(){
+    <header>
+    <nav class="navbar is-primary is-active" role="navigation" aria-label="main navigation">
+        <div class="container">
+            <div class="navbar-brand">
+                <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false" data-target="navbarMenu">
+                    <span aria-hidden="true"></span>
+                    <span aria-hidden="true"></span>
+                    <span aria-hidden="true"></span>
+                </a>
+            </div>
+
+            <!-- Navigation Menu -->
+            <div id="navbarMenu" class="navbar-menu">
+                <!-- Left menu items -->
+                <div class="navbar-start">
+                    <a class="navbar-item" href="#">
+                        Home
+                    </a>
+
+                    <a class="navbar-item" href="#">
+                        About
+                    </a>
+
+                    <a class="navbar-item" href="#">
+                        Services
+                    </a>
+
+                    <!-- Dropdown menu -->
+                    <div class="navbar-item has-dropdown is-hoverable">
+                        <a class="navbar-link">
+                            Products
+                        </a>
+
+                        <div class="navbar-dropdown">
+                            <a class="navbar-item" href="#">
+                                Product 1
+                            </a>
+                            <a class="navbar-item" href="#">
+                                Product 2
+                            </a>
+                            <a class="navbar-item" href="#">
+                                Product 3
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right menu items -->
+                <div class="navbar-end">
+                    <div class="navbar-item">
+                        <div class="buttons">
+                            <a class="button is-light" href="#">
+                                Sign Up
+                            </a>
+                            <a class="button is-dark" href="#">
+                                Login
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <section class="section">
+        <div class="container">
+            <div class="content has-text-centered">
+                <h1 class="title">Welcome to My Website</h1>
+                <p class="subtitle">This is a simple header with a burger menu</p>
+                <p>Resize your browser window to see the burger menu appear on smaller screens.</p>
+            </div>
+        </div>
+    </section>
+    </header>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Get all "navbar-burger" elements
+  const $navbarBurgers = Array.prototype.slice.call(document.querySelectorAll('.navbar-burger'), 0);
+
+  // Add a click event on each of them
+  $navbarBurgers.forEach( el => {
+    el.addEventListener('click', () => {
+      // Get the target from the "data-target" attribute
+      const target = el.dataset.target;
+      const $target = document.getElementById(target);
+
+      // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
+      el.classList.toggle('is-active');
+      $target.classList.toggle('is-active');
+    });
+  });
+});
+</script>
+}
+
+templ MainPage(){
+      <section class="hero is-info is-medium">
+        <div class="hero-body">
+            <div class="container has-text-centered">
+                <h1 class="title is-1">
+                    Welcome to Dashboard
+                </h1>
+                <p class="subtitle is-4">
+                    Manage your data with ease
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <div class="container">
+            <div class="columns is-centered">
+                <!-- Tables Category -->
+                <div class="column is-5">
+                    <div class="card">
+                        <div class="card-header">
+                            <p class="card-header-title is-size-4">
+                                <span class="icon mr-2">
+                                    <i class="fas fa-table"></i>
+                                </span>
+                                Tables
+                            </p>
+                        </div>
+                        <div class="card-content">
+                            <p class="subtitle is-6 mb-4">
+                                Select a table to view and manage data:
+                            </p>
+                            <div class="buttons are-medium is-flex is-flex-direction-column">
+                                <a href="#" class="button is-primary is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-users"></i>
+                                    </span>
+                                    <span>Users Table</span>
+                                </a>
+
+                                <a href="#" class="button is-link is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-boxes"></i>
+                                    </span>
+                                    <span>Products Table</span>
+                                </a>
+
+                                <a href="#" class="button is-success is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-shopping-cart"></i>
+                                    </span>
+                                    <span>Orders Table</span>
+                                </a>
+
+                                <a href="#" class="button is-warning is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-file-invoice-dollar"></i>
+                                    </span>
+                                    <span>Invoices Table</span>
+                                </a>
+
+                                <a href="#" class="button is-info is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-tags"></i>
+                                    </span>
+                                    <span>Categories Table</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Actions Category -->
+                <div class="column is-5">
+                    <div class="card">
+                        <div class="card-header">
+                            <p class="card-header-title is-size-4">
+                                <span class="icon mr-2">
+                                    <i class="fas fa-bolt"></i>
+                                </span>
+                                Actions
+                            </p>
+                        </div>
+                        <div class="card-content">
+                            <p class="subtitle is-6 mb-4">
+                                Quick actions and operations:
+                            </p>
+                            <div class="buttons are-medium is-flex is-flex-direction-column">
+                                <a href="#" class="button is-danger is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-plus-circle"></i>
+                                    </span>
+                                    <span>Create New Record</span>
+                                </a>
+
+                                <a href="#" class="button is-dark is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-download"></i>
+                                    </span>
+                                    <span>Export Data</span>
+                                </a>
+
+                                <a href="#" class="button is-primary is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-upload"></i>
+                                    </span>
+                                    <span>Import Data</span>
+                                </a>
+
+                                <a href="#" class="button is-link is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-cog"></i>
+                                    </span>
+                                    <span>Settings</span>
+                                </a>
+
+                                <a href="#" class="button is-success is-fullwidth">
+                                    <span class="icon">
+                                        <i class="fas fa-chart-bar"></i>
+                                    </span>
+                                    <span>Generate Report</span>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+}
+
+templ PageFooter(){
+            <div class="has-text-centered mt-6">
+                <div class="box is-light">
+                    <p class="subtitle is-6">
+                        <span class="icon has-text-info">
+                            <i class="fas fa-info-circle"></i>
+                        </span>
+                        Select a table to view data or an action to perform operations.
+                        <span class="icon has-text-info">
+                            <i class="fas fa-info-circle"></i>
+                        </span>
+                    </p>
+                </div>
+            </div>
+
+}
