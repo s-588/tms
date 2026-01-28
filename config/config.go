@@ -15,6 +15,10 @@ var (
 		DB:   "tms",
 		Addr: "postgres",
 	}
+	DefaultServerConfig = ServerConfig{
+		Port:  "8080",
+		HTTPS: false,
+	}
 )
 
 type Config struct {
@@ -86,12 +90,12 @@ func parseServerCfg() (ServerConfig, error) {
 		Port: os.Getenv("SERVER_PORT"),
 	}
 	https := os.Getenv("SERVER_HTTPS")
-	if https == "1" || https == "true" || https == "yes" {
+	if https == "1" || https == "true" || https == "yes" || https == "y" {
 		cfg.HTTPS = true
 	}
 
 	if cfg.Port == "" {
-		cfg.Port = "8080"
+		cfg.Port = DefaultServerConfig.Port
 	}
 
 	return cfg, nil
