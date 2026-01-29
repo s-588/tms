@@ -12,6 +12,8 @@ templ Head(){
     <title>Transportation Management System</title>
     <link rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bulma@1.0.4/css/bulma.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     </head>
 }
 
@@ -39,65 +41,50 @@ templ PageHeader(){
             <div id="navbarMenu" class="navbar-menu">
                 <!-- Left menu items -->
                 <div class="navbar-start">
-                    <a class="navbar-item" href="#">
+                    <a class="navbar-item" href="/">
                         Home
                     </a>
 
-                    <a class="navbar-item" href="#">
+                    <a class="navbar-item" hx-get="/about">
                         About
                     </a>
 
-                    <a class="navbar-item" href="#">
-                        Services
+                    <a class="navbar-item" hx-get="/functions">
+                        Functions
                     </a>
 
                     <!-- Dropdown menu -->
                     <div class="navbar-item has-dropdown is-hoverable">
                         <a class="navbar-link">
-                            Products
+                            Tables
                         </a>
 
                         <div class="navbar-dropdown">
-                            <a class="navbar-item" href="#">
-                                Product 1
+                            <a class="navbar-item" hx-get="/clients">
+                                Clients
                             </a>
-                            <a class="navbar-item" href="#">
-                                Product 2
+                            <a class="navbar-item" hx-get="/employees">
+                                Employees
                             </a>
-                            <a class="navbar-item" href="#">
-                                Product 3
+                            <a class="navbar-item" hx-get="/fuels">
+                                Fuels
+                            </a>
+                            <a class="navbar-item" hx-get="/orders">
+                                Orders
+                            </a>
+                            <a class="navbar-item" hx-get="/prices">
+                                Prices
+                            </a>
+                            <a class="navbar-item" hx-get="/transports">
+                                Transports
                             </a>
                         </div>
                     </div>
                 </div>
 
-                <!-- Right menu items -->
-                <div class="navbar-end">
-                    <div class="navbar-item">
-                        <div class="buttons">
-                            <a class="button is-light" href="#">
-                                Sign Up
-                            </a>
-                            <a class="button is-dark" href="#">
-                                Login
-                            </a>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </nav>
-
-    <!-- Main Content -->
-    <section class="section">
-        <div class="container">
-            <div class="content has-text-centered">
-                <h1 class="title">Welcome to My Website</h1>
-                <p class="subtitle">This is a simple header with a burger menu</p>
-                <p>Resize your browser window to see the burger menu appear on smaller screens.</p>
-            </div>
-        </div>
-    </section>
     </header>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -120,15 +107,15 @@ document.addEventListener('DOMContentLoaded', () => {
 </script>
 }
 
-templ MainPage(){
-      <section class="hero is-info is-medium">
+templ MainPage() {
+    <section class="hero is-primary is-medium">
         <div class="hero-body">
             <div class="container has-text-centered">
                 <h1 class="title is-1">
-                    Welcome to Dashboard
+                    Welcome to Transportation Management System
                 </h1>
                 <p class="subtitle is-4">
-                    Manage your data with ease
+                    Manage your transportation operations with efficiency
                 </p>
             </div>
         </div>
@@ -137,110 +124,159 @@ templ MainPage(){
     <section class="section">
         <div class="container">
             <div class="columns is-centered">
-                <!-- Tables Category -->
+                <!-- Data Management Category -->
                 <div class="column is-5">
                     <div class="card">
-                        <div class="card-header">
-                            <p class="card-header-title is-size-4">
+                        <div class="card-header has-background-primary">
+                            <p class="card-header-title is-size-4 has-text-white">
                                 <span class="icon mr-2">
-                                    <i class="fas fa-table"></i>
+                                    <i class="fas fa-database"></i>
                                 </span>
-                                Tables
+                                Data Management
                             </p>
                         </div>
                         <div class="card-content">
-                            <p class="subtitle is-6 mb-4">
-                                Select a table to view and manage data:
+                            <p class="subtitle is-6 mb-4 has-text-grey">
+                                Select a category to view and manage data:
                             </p>
                             <div class="buttons are-medium is-flex is-flex-direction-column">
-                                <a href="#" class="button is-primary is-fullwidth">
+                                <a hx-get="/clients" class="button is-primary is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
                                         <i class="fas fa-users"></i>
                                     </span>
-                                    <span>Users Table</span>
+                                    <span>Clients</span>
                                 </a>
 
-                                <a href="#" class="button is-link is-fullwidth">
+                                <a hx-get="/employees" class="button is-info is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-boxes"></i>
+                                        <i class="fas fa-id-badge"></i>
                                     </span>
-                                    <span>Products Table</span>
+                                    <span>Employees</span>
                                 </a>
 
-                                <a href="#" class="button is-success is-fullwidth">
+                                <a href="/fuels" class="button is-warning is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-shopping-cart"></i>
+                                        <i class="fas fa-gas-pump"></i>
                                     </span>
-                                    <span>Orders Table</span>
+                                    <span>Fuels</span>
                                 </a>
 
-                                <a href="#" class="button is-warning is-fullwidth">
+                                <a href="/orders" class="button is-success is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-file-invoice-dollar"></i>
+                                        <i class="fas fa-shipping-fast"></i>
                                     </span>
-                                    <span>Invoices Table</span>
+                                    <span>Orders</span>
                                 </a>
 
-                                <a href="#" class="button is-info is-fullwidth">
+                                <a href="/prices" class="button is-link is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-tags"></i>
+                                        <i class="fas fa-money-bill-wave"></i>
                                     </span>
-                                    <span>Categories Table</span>
+                                    <span>Prices</span>
+                                </a>
+
+                                <a href="/transports" class="button is-danger is-fullwidth has-text-weight-semibold">
+                                    <span class="icon">
+                                        <i class="fas fa-truck"></i>
+                                    </span>
+                                    <span>Transports</span>
                                 </a>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Actions Category -->
+                <!-- Operations Category -->
                 <div class="column is-5">
                     <div class="card">
-                        <div class="card-header">
-                            <p class="card-header-title is-size-4">
+                        <div class="card-header has-background-info">
+                            <p class="card-header-title is-size-4 has-text-white">
                                 <span class="icon mr-2">
-                                    <i class="fas fa-bolt"></i>
+                                    <i class="fas fa-cogs"></i>
                                 </span>
-                                Actions
+                                Operations
                             </p>
                         </div>
                         <div class="card-content">
-                            <p class="subtitle is-6 mb-4">
-                                Quick actions and operations:
+                            <p class="subtitle is-6 mb-4 has-text-grey">
+                                Quick operations and system functions:
                             </p>
                             <div class="buttons are-medium is-flex is-flex-direction-column">
-                                <a href="#" class="button is-danger is-fullwidth">
-                                    <span class="icon">
-                                        <i class="fas fa-plus-circle"></i>
-                                    </span>
-                                    <span>Create New Record</span>
-                                </a>
 
-                                <a href="#" class="button is-dark is-fullwidth">
+                                <!-- Create New Record - Updated for consistency -->
+                                <div class="p-4 mb-5 rounded">
+                                    <p class="subtitle is-6 mb-4 has-text-grey">
+                                        Create New Record:
+                                    </p>
+                                    <div class="buttons are-medium is-flex is-flex-wrap-wrap is-justify-content-center">
+                                        <a class="button is-primary is-fullwidth-mobile mb-2" hx-get="/clients/new">
+                                            <span class="icon">
+                                                <i class="fas fa-user-plus"></i>
+                                            </span>
+                                            <span>New Client</span>
+                                        </a>
+                                        <a class="button is-info is-fullwidth-mobile mb-2" hx-get="/employees/new">
+                                            <span class="icon">
+                                                <i class="fas fa-user-tie"></i>
+                                            </span>
+                                            <span>New Employee</span>
+                                        </a>
+                                        <a class="button is-warning is-fullwidth-mobile mb-2" hx-get="/fuels/new">
+                                            <span class="icon">
+                                                <i class="fas fa-gas-pump"></i>
+                                            </span>
+                                            <span>New Fuel</span>
+                                        </a>
+                                        <a class="button is-success is-fullwidth-mobile mb-2" hx-get="/orders/new">
+                                            <span class="icon">
+                                                <i class="fas fa-clipboard-list"></i>
+                                            </span>
+                                            <span>New Order</span>
+                                        </a>
+                                        <a class="button is-link is-fullwidth-mobile mb-2" hx-get="/prices/new">
+                                            <span class="icon">
+                                                <i class="fas fa-tag"></i>
+                                            </span>
+                                            <span>New Price</span>
+                                        </a>
+                                        <a class="button is-danger is-fullwidth-mobile mb-2" hx-get="/transports/new">
+                                            <span class="icon">
+                                                <i class="fas fa-truck"></i>
+                                            </span>
+                                            <span>New Transport</span>
+                                        </a>
+                                    </div>
+                                </div>
+
+                                <!-- Data Operations -->
+                                <a href="#" class="button is-warning is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-download"></i>
+                                        <i class="fas fa-file-export"></i>
                                     </span>
                                     <span>Export Data</span>
                                 </a>
 
-                                <a href="#" class="button is-primary is-fullwidth">
+                                <a href="#" class="button is-primary is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-upload"></i>
+                                        <i class="fas fa-file-import"></i>
                                     </span>
                                     <span>Import Data</span>
                                 </a>
 
-                                <a href="#" class="button is-link is-fullwidth">
+                                <!-- Reports -->
+                                <a href="#" class="button is-link is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-cog"></i>
+                                        <i class="fas fa-chart-line"></i>
                                     </span>
-                                    <span>Settings</span>
+                                    <span>View Reports</span>
                                 </a>
 
-                                <a href="#" class="button is-success is-fullwidth">
+                                <!-- System -->
+                                <a href="#" class="button is-dark is-fullwidth has-text-weight-semibold">
                                     <span class="icon">
-                                        <i class="fas fa-chart-bar"></i>
+                                        <i class="fas fa-sliders-h"></i>
                                     </span>
-                                    <span>Generate Report</span>
+                                    <span>System Settings</span>
                                 </a>
                             </div>
                         </div>
