@@ -68,7 +68,7 @@ create table transports(
     license_plate varchar(10),
     payload_capacity integer not null,
     fuel_id integer references fuels(fuel_id) not null,
-    fuel_consumption integer not null
+    fuel_consumption integer not null,
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
