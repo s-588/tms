@@ -1,8 +1,5 @@
 -- +goose Up
 -- +goose StatementBegin
-
--- First, ensure we have the correct number of employees and get their IDs
--- Insert 50 employees
 INSERT INTO employees (name, created_at) VALUES
 ('David Chen', '2022-01-10 08:00:00'),
 ('Priya Sharma', '2022-01-15 09:00:00'),
@@ -54,9 +51,7 @@ INSERT INTO employees (name, created_at) VALUES
 ('Tiffany Morris', '2023-12-15 11:10:00'),
 ('Brandon Rogers', '2024-01-01 08:12:00'),
 ('Christina Reed', '2024-01-15 09:12:00');
-select * from employees;
 
--- Insert 15 fuel types
 INSERT INTO fuels (name, supplier, price, created_at) VALUES
 ('Diesel', 'ExxonMobil', '3.89', '2022-01-01 00:00:00'),
 ('Gasoline Regular', 'Shell', '3.45', '2022-01-01 00:00:00'),
@@ -74,7 +69,6 @@ INSERT INTO fuels (name, supplier, price, created_at) VALUES
 ('Biodiesel B100', 'Renewable Energy', '4.35', '2022-01-01 00:00:00'),
 ('Liquefied Natural Gas', 'Shell LNG', '2.45', '2022-01-01 00:00:00');
 
--- Insert 200 clients
 INSERT INTO clients (name, email, email_verified, phone, created_at) VALUES
 ('John Smith', 'john.smith@example.com', true, '+15551234567', '2023-01-15 09:30:00'),
 ('Maria Garcia', 'maria.garcia@example.com', true, '+15552345678', '2023-01-16 10:15:00'),
@@ -107,7 +101,6 @@ INSERT INTO clients (name, email, email_verified, phone, created_at) VALUES
 ('Alexander Carter', 'alex.carter@example.com', false, '+442096789012', '2023-03-09 12:20:00'),
 ('Charlotte Mitchell', 'charlotte.m@example.com', true, '+442017890123', '2023-03-10 14:50:00');
 
--- Insert price configurations for different cargo types
 INSERT INTO prices (cargo_type, cost, weight, distance, created_at) VALUES
 ('Electronics', '2.50', 10, 100, '2022-01-01 00:00:00'),
 ('Furniture', '4.25', 50, 100, '2022-01-01 00:00:00'),
@@ -120,7 +113,6 @@ INSERT INTO prices (cargo_type, cost, weight, distance, created_at) VALUES
 ('Medical Supplies', '4.50', 15, 100, '2022-01-01 00:00:00'),
 ('Documents', '1.25', 1, 100, '2022-01-01 00:00:00');
 
--- Insert 30 orders
 INSERT INTO orders (distance, weight, total_price, status, created_at) VALUES
 (150, 25, '375.00', 'delivered', '2023-01-05 08:30:00'),
 (320, 120, '960.00', 'in_transit', '2023-01-06 14:15:00'),
@@ -153,8 +145,6 @@ INSERT INTO orders (distance, weight, total_price, status, created_at) VALUES
 (340, 100, '3400.00', 'in_transit', '2023-02-02 13:20:00'),
 (140, 32, '448.00', 'delivered', '2023-02-03 08:35:00');
 
--- Insert 30 transport vehicles (with valid employee_id references)
--- Now employee_id values 1-30 exist because we inserted 50 employees above
 INSERT INTO transports (employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at) VALUES
 (1, 'Ford F-150', 'ABC123', 1500, 2, 15, '2022-02-01 00:00:00'),
 (2, 'Mercedes Sprinter', 'DEF456', 3500, 1, 12, '2022-02-02 00:00:00'),
@@ -187,8 +177,7 @@ INSERT INTO transports (employee_id, model, license_plate, payload_capacity, fue
 (29, 'Volvo FE', '789GHI', 11000, 1, 22, '2022-03-01 00:00:00'),
 (30, 'Chevrolet Colorado', '012JKL', 1500, 2, 20, '2022-03-02 00:00:00');
 
--- Insert orders_transport relationships
-INSERT INTO orders_transport (order_id, transport_id) VALUES
+INSERT INTO orders_transports (order_id, transport_id) VALUES
 (1, 1),
 (1, 2),
 (2, 3),
@@ -221,7 +210,6 @@ INSERT INTO orders_transport (order_id, transport_id) VALUES
 (29, 30),
 (30, 1);
 
--- Insert clients_orders relationships
 INSERT INTO clients_orders (client_id, order_id) VALUES
 (1, 1),
 (2, 2),
@@ -258,9 +246,8 @@ INSERT INTO clients_orders (client_id, order_id) VALUES
 
 -- +goose Down
 -- +goose StatementBegin
--- Note: The order matters here due to foreign key constraints
 DELETE FROM clients_orders;
-DELETE FROM orders_transport;
+DELETE FROM orders_transports;
 DELETE FROM transports;
 DELETE FROM orders;
 DELETE FROM prices;
@@ -268,7 +255,6 @@ DELETE FROM fuels;
 DELETE FROM employees;
 DELETE FROM clients;
 
--- Reset sequences if needed (optional, but good practice)
 ALTER SEQUENCE clients_client_id_seq RESTART;
 ALTER SEQUENCE employees_employee_id_seq RESTART;
 ALTER SEQUENCE fuels_fuel_id_seq RESTART;
