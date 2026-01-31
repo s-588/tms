@@ -7,26 +7,137 @@ package generated
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getClients = `-- name: GetClients :many
-select client_id, name, email, phone from clients
+const createClient = `-- name: CreateClient :one
+INSERT INTO clients (name, email, phone, email_verified)
+VALUES ($1, $2, $3, $4)
+RETURNING client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at
 `
 
-func (q *Queries) GetClients(ctx context.Context) ([]Client, error) {
-	rows, err := q.db.Query(ctx, getClients)
+type CreateClientParams struct {
+	Name          string
+	Email         string
+	Phone         string
+	EmailVerified bool
+}
+
+// Create new client
+func (q *Queries) CreateClient(ctx context.Context, arg CreateClientParams) (Client, error) {
+	row := q.db.QueryRow(ctx, createClient,
+		arg.Name,
+		arg.Email,
+		arg.Phone,
+		arg.EmailVerified,
+	)
+	var i Client
+	err := row.Scan(
+		&i.ClientID,
+		&i.Name,
+		&i.Email,
+		&i.EmailVerified,
+		&i.EmailToken,
+		&i.EmailTokenExpiration,
+		&i.Phone,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const deleteClient = `-- name: DeleteClient :exec
+delete from clients WHERE client_id = $1
+`
+
+// Soft delete client (set deleted_at)
+func (q *Queries) DeleteClient(ctx context.Context, clientID int32) error {
+	_, err := q.db.Exec(ctx, deleteClient, clientID)
+	return err
+}
+
+const deleteClientOrderAssignments = `-- name: DeleteClientOrderAssignments :exec
+DELETE FROM clients_orders WHERE client_id = $1
+`
+
+// Assign/unassign client to orders (replace all connections)
+// First delete existing assignments
+func (q *Queries) DeleteClientOrderAssignments(ctx context.Context, clientID int32) error {
+	_, err := q.db.Exec(ctx, deleteClientOrderAssignments, clientID)
+	return err
+}
+
+const getClientByclient_id = `-- name: GetClientByclient_id :one
+SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at FROM clients WHERE client_id = $1 AND deleted_at IS NULL
+`
+
+// Get single client by client_id
+func (q *Queries) GetClientByclient_id(ctx context.Context, clientID int32) (Client, error) {
+	row := q.db.QueryRow(ctx, getClientByclient_id, clientID)
+	var i Client
+	err := row.Scan(
+		&i.ClientID,
+		&i.Name,
+		&i.Email,
+		&i.EmailVerified,
+		&i.EmailToken,
+		&i.EmailTokenExpiration,
+		&i.Phone,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getClientOrders = `-- name: GetClientOrders :many
+SELECT o.order_id, o.distance, o.weight, o.total_price, o.status, o.created_at, o.updated_at, o.deleted_at,count(*) as total_count  FROM orders o
+JOIN clients_orders co ON o.order_id = co.order_id
+WHERE co.client_id = $1 and o.deleted_at is null
+ORDER BY co.client_id
+LIMIT $2 OFFSET $3
+`
+
+type GetClientOrdersParams struct {
+	ClientID int32
+	Limit    int32
+	Offset   int32
+}
+
+type GetClientOrdersRow struct {
+	OrderID    int32
+	Distance   int32
+	Weight     int32
+	TotalPrice pgtype.Numeric
+	Status     string
+	CreatedAt  pgtype.Timestamp
+	UpdatedAt  pgtype.Timestamp
+	DeletedAt  pgtype.Timestamp
+	TotalCount int64
+}
+
+// Get client's orders
+func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams) ([]GetClientOrdersRow, error) {
+	rows, err := q.db.Query(ctx, getClientOrders, arg.ClientID, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Client
+	var items []GetClientOrdersRow
 	for rows.Next() {
-		var i Client
+		var i GetClientOrdersRow
 		if err := rows.Scan(
-			&i.ClientID,
-			&i.Name,
-			&i.Email,
-			&i.Phone,
+			&i.OrderID,
+			&i.Distance,
+			&i.Weight,
+			&i.TotalPrice,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.TotalCount,
 		); err != nil {
 			return nil, err
 		}
@@ -36,4 +147,117 @@ func (q *Queries) GetClients(ctx context.Context) ([]Client, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const getClientsPaginated = `-- name: GetClientsPaginated :many
+SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at,count(*) as total_count FROM clients
+WHERE deleted_at IS NULL
+ORDER BY client_id
+LIMIT $1 OFFSET $2
+`
+
+type GetClientsPaginatedParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type GetClientsPaginatedRow struct {
+	ClientID             int32
+	Name                 string
+	Email                string
+	EmailVerified        bool
+	EmailToken           pgtype.Text
+	EmailTokenExpiration pgtype.Timestamp
+	Phone                string
+	CreatedAt            pgtype.Timestamp
+	UpdatedAt            pgtype.Timestamp
+	DeletedAt            pgtype.Timestamp
+	TotalCount           int64
+}
+
+// Get paginated client list
+func (q *Queries) GetClientsPaginated(ctx context.Context, arg GetClientsPaginatedParams) ([]GetClientsPaginatedRow, error) {
+	rows, err := q.db.Query(ctx, getClientsPaginated, arg.Limit, arg.Offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetClientsPaginatedRow
+	for rows.Next() {
+		var i GetClientsPaginatedRow
+		if err := rows.Scan(
+			&i.ClientID,
+			&i.Name,
+			&i.Email,
+			&i.EmailVerified,
+			&i.EmailToken,
+			&i.EmailTokenExpiration,
+			&i.Phone,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const insertClientOrderAssignments = `-- name: InsertClientOrderAssignments :exec
+INSERT INTO clients_orders (client_id, order_id)
+SELECT $1, unnest($2::int[])
+`
+
+type InsertClientOrderAssignmentsParams struct {
+	ClientID int32
+	Column2  []int32
+}
+
+// Then insert new assignments
+func (q *Queries) InsertClientOrderAssignments(ctx context.Context, arg InsertClientOrderAssignmentsParams) error {
+	_, err := q.db.Exec(ctx, insertClientOrderAssignments, arg.ClientID, arg.Column2)
+	return err
+}
+
+const updateClient = `-- name: UpdateClient :exec
+UPDATE clients
+SET
+  name = COALESCE($2, name),
+  email = COALESCE($3, email),
+  email_verified = CASE WHEN $3 IS NOT NULL THEN false ELSE email_verified END,
+  phone = COALESCE($4, phone)
+WHERE client_id = $1
+`
+
+type UpdateClientParams struct {
+	ClientID int32
+	Name     string
+	Email    string
+	Phone    string
+}
+
+// Update client fields
+func (q *Queries) UpdateClient(ctx context.Context, arg UpdateClientParams) error {
+	_, err := q.db.Exec(ctx, updateClient,
+		arg.ClientID,
+		arg.Name,
+		arg.Email,
+		arg.Phone,
+	)
+	return err
+}
+
+const verifyClientEmail = `-- name: VerifyClientEmail :exec
+UPDATE clients SET email_verified = true WHERE email_token = $1
+`
+
+// Verify client email by token
+func (q *Queries) VerifyClientEmail(ctx context.Context, emailToken pgtype.Text) error {
+	_, err := q.db.Exec(ctx, verifyClientEmail, emailToken)
+	return err
 }

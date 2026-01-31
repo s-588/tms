@@ -9,10 +9,16 @@ import (
 )
 
 type Client struct {
-	ClientID int32
-	Name     string
-	Email    string
-	Phone    string
+	ClientID             int32
+	Name                 string
+	Email                string
+	EmailVerified        bool
+	EmailToken           pgtype.Text
+	EmailTokenExpiration pgtype.Timestamp
+	Phone                string
+	CreatedAt            pgtype.Timestamp
+	UpdatedAt            pgtype.Timestamp
+	DeletedAt            pgtype.Timestamp
 }
 
 type ClientsOrder struct {
@@ -23,13 +29,19 @@ type ClientsOrder struct {
 type Employee struct {
 	EmployeeID int32
 	Name       string
+	CreatedAt  pgtype.Timestamp
+	UpdatedAt  pgtype.Timestamp
+	DeletedAt  pgtype.Timestamp
 }
 
-type FuelType struct {
-	FuelID   int32
-	Name     string
-	Supplier pgtype.Text
-	Price    pgtype.Numeric
+type Fuel struct {
+	FuelID    int32
+	Name      string
+	Supplier  pgtype.Text
+	Price     pgtype.Numeric
+	CreatedAt pgtype.Timestamp
+	UpdatedAt pgtype.Timestamp
+	DeletedAt pgtype.Timestamp
 }
 
 type Order struct {
@@ -37,11 +49,15 @@ type Order struct {
 	Distance   int32
 	Weight     int32
 	TotalPrice pgtype.Numeric
+	Status     string
+	CreatedAt  pgtype.Timestamp
+	UpdatedAt  pgtype.Timestamp
+	DeletedAt  pgtype.Timestamp
 }
 
 type OrdersTransport struct {
-	OrderID     pgtype.Int4
-	TransportID pgtype.Int4
+	OrderID     int32
+	TransportID int32
 }
 
 type Price struct {
@@ -50,6 +66,9 @@ type Price struct {
 	Cost      pgtype.Numeric
 	Weight    int32
 	Distance  int32
+	CreatedAt pgtype.Timestamp
+	UpdatedAt pgtype.Timestamp
+	DeletedAt pgtype.Timestamp
 }
 
 type Transport struct {
@@ -60,4 +79,7 @@ type Transport struct {
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32
+	CreatedAt       pgtype.Timestamp
+	UpdatedAt       pgtype.Timestamp
+	DeletedAt       pgtype.Timestamp
 }

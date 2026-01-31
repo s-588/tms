@@ -7,21 +7,120 @@ package generated
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getTransports = `-- name: GetTransports :many
-select transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption from transports
+const createTransport = `-- name: CreateTransport :one
+insert into transports(employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption)
+values ($1,$2,$3,$4,$5,$6)
+returning transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at
 `
 
-func (q *Queries) GetTransports(ctx context.Context) ([]Transport, error) {
-	rows, err := q.db.Query(ctx, getTransports)
+type CreateTransportParams struct {
+	EmployeeID      pgtype.Int4
+	Model           string
+	LicensePlate    pgtype.Text
+	PayloadCapacity int32
+	FuelID          int32
+	FuelConsumption int32
+}
+
+// Create new transport
+func (q *Queries) CreateTransport(ctx context.Context, arg CreateTransportParams) (Transport, error) {
+	row := q.db.QueryRow(ctx, createTransport,
+		arg.EmployeeID,
+		arg.Model,
+		arg.LicensePlate,
+		arg.PayloadCapacity,
+		arg.FuelID,
+		arg.FuelConsumption,
+	)
+	var i Transport
+	err := row.Scan(
+		&i.TransportID,
+		&i.EmployeeID,
+		&i.Model,
+		&i.LicensePlate,
+		&i.PayloadCapacity,
+		&i.FuelID,
+		&i.FuelConsumption,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const deleteTransport = `-- name: DeleteTransport :exec
+delete from transports where transport_id = $1
+`
+
+// Delete transport
+func (q *Queries) DeleteTransport(ctx context.Context, transportID int32) error {
+	_, err := q.db.Exec(ctx, deleteTransport, transportID)
+	return err
+}
+
+const getTransportBytransport_id = `-- name: GetTransportBytransport_id :one
+select transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at from transports t where transport_id = $1 and t.deleted_at is null
+`
+
+// Get single transport by transport_id
+func (q *Queries) GetTransportBytransport_id(ctx context.Context, transportID int32) (Transport, error) {
+	row := q.db.QueryRow(ctx, getTransportBytransport_id, transportID)
+	var i Transport
+	err := row.Scan(
+		&i.TransportID,
+		&i.EmployeeID,
+		&i.Model,
+		&i.LicensePlate,
+		&i.PayloadCapacity,
+		&i.FuelID,
+		&i.FuelConsumption,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getTransportsPaginated = `-- name: GetTransportsPaginated :many
+select transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at,count(*) as total_count   from transports t
+where t.deleted_at is null
+order by transport_id
+limit $1 offset $2
+`
+
+type GetTransportsPaginatedParams struct {
+	Limit  int32
+	Offset int32
+}
+
+type GetTransportsPaginatedRow struct {
+	TransportID     int32
+	EmployeeID      pgtype.Int4
+	Model           string
+	LicensePlate    pgtype.Text
+	PayloadCapacity int32
+	FuelID          int32
+	FuelConsumption int32
+	CreatedAt       pgtype.Timestamp
+	UpdatedAt       pgtype.Timestamp
+	DeletedAt       pgtype.Timestamp
+	TotalCount      int64
+}
+
+// Get paginated transports list
+func (q *Queries) GetTransportsPaginated(ctx context.Context, arg GetTransportsPaginatedParams) ([]GetTransportsPaginatedRow, error) {
+	rows, err := q.db.Query(ctx, getTransportsPaginated, arg.Limit, arg.Offset)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Transport
+	var items []GetTransportsPaginatedRow
 	for rows.Next() {
-		var i Transport
+		var i GetTransportsPaginatedRow
 		if err := rows.Scan(
 			&i.TransportID,
 			&i.EmployeeID,
@@ -30,6 +129,10 @@ func (q *Queries) GetTransports(ctx context.Context) ([]Transport, error) {
 			&i.PayloadCapacity,
 			&i.FuelID,
 			&i.FuelConsumption,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.TotalCount,
 		); err != nil {
 			return nil, err
 		}
@@ -39,4 +142,40 @@ func (q *Queries) GetTransports(ctx context.Context) ([]Transport, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateTransport = `-- name: UpdateTransport :exec
+update transports
+set
+employee_id = coalesce($2, employee_id),
+model = coalesce($3, model),
+license_plate = coalesce($4, license_plate),
+payload_capacity = coalesce($5, payload_capacity),
+fuel_id = coalesce($6, fuel_id),
+fuel_consumption = coalesce($7, fuel_consumption)
+where transport_id = $1
+`
+
+type UpdateTransportParams struct {
+	TransportID     int32
+	EmployeeID      pgtype.Int4
+	Model           string
+	LicensePlate    pgtype.Text
+	PayloadCapacity int32
+	FuelID          int32
+	FuelConsumption int32
+}
+
+// Update transport fields
+func (q *Queries) UpdateTransport(ctx context.Context, arg UpdateTransportParams) error {
+	_, err := q.db.Exec(ctx, updateTransport,
+		arg.TransportID,
+		arg.EmployeeID,
+		arg.Model,
+		arg.LicensePlate,
+		arg.PayloadCapacity,
+		arg.FuelID,
+		arg.FuelConsumption,
+	)
+	return err
 }
