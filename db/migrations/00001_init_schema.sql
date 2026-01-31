@@ -5,9 +5,11 @@ create table clients(
     name varchar(50) not null,
     email varchar(254) not null,
     email_verified boolean not null default false,
+    email_token varchar(128) unique,
+    email_token_expiration timestamp,
     phone varchar(25) check (phone ~ '^[\\+]?[0-9\\-\\s()]{7,25}$') not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
@@ -17,7 +19,7 @@ create table employees(
     employee_id serial primary key,
     name varchar(50) not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
@@ -29,7 +31,7 @@ create table fuels(
     supplier varchar(50),
     price money not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
@@ -42,7 +44,7 @@ create table orders(
     total_price money not null,
     status varchar(50) not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
@@ -55,7 +57,7 @@ create table prices(
     weight integer not null,
     distance integer not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
@@ -70,26 +72,36 @@ create table transports(
     fuel_id integer references fuels(fuel_id) not null,
     fuel_consumption integer not null,
     created_at timestamp default now(),
-    update_at timestamp default null,
+    updated_at timestamp default null,
     deleted_at timestamp default null
 );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-create table orders_transport(
-    order_id integer references orders(order_id),
-    transport_id integer references transports(transport_id)
+create table orders_transports(
+    order_id integer references orders(order_id) on delete cascade,
+    transport_id integer references transports(transport_id) on delete cascade,
+    primary key(order_id, transport_id)
 );
 -- +goose StatementEnd
 
 -- +goose StatementBegin
 create table clients_orders(
-    client_id integer references clients(client_id) not null,
-    order_id integer references orders(order_id) not null
+    client_id integer references clients(client_id) on delete cascade not null ,
+    order_id integer references orders(order_id) on delete cascade not null,
+    primary key(client_id, order_id)
 );
 -- +goose StatementEnd
 
 -- +goose Down
+-- +goose StatementBegin
+drop table orders_transports;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+drop table clients_orders;
+-- +goose StatementEnd
+
 -- +goose StatementBegin
 drop table transports;
 -- +goose StatementEnd
@@ -104,14 +116,6 @@ drop table fuels;
 
 -- +goose StatementBegin
 drop table orders;
--- +goose StatementEnd
-
--- +goose StatementBegin
-drop table orders_transport;
--- +goose StatementEnd
-
--- +goose StatementBegin
-drop table clients_orders;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
