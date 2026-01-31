@@ -8,3 +8,74 @@ sql:
         package: "generated"
         out: "generated"
         sql_package: "pgx/v5"
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: "money"
+            go_type:
+              import: "github.com/shopspring/decimal"
+              type: "Decimal"
+
+          - db_type: "varchar"
+            go_type: string
+          - db_type: "text"
+            go_type: string
+          
+          - column: "clients.created_at"
+            go_type: 
+              type: "time.Time"
+          - column: "employees.created_at"
+            go_type: 
+              type: "time.Time"
+          - column: "fuels.created_at"
+            go_type: 
+              type: "time.Time"
+          - column: "orders.created_at"
+            go_type: 
+              type: "time.Time"
+          - column: "prices.created_at"
+            go_type: 
+              type: "time.Time"
+          - column: "transports.created_at"
+            go_type: 
+              type: "time.Time"
+          
+          - column: "clients.email_token_expiration"
+            go_type: 
+              type: "time.Time"
+          - column: "clients.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "clients.deleted_at"
+            go_type: 
+              type: "time.Time"
+          - column: "employees.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "employees.deleted_at"
+            go_type: 
+              type: "time.Time"
+          - column: "fuels.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "fuels.deleted_at"
+            go_type: 
+              type: "time.Time"
+          - column: "orders.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "orders.deleted_at"
+            go_type: 
+              type: "time.Time"
+          - column: "prices.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "prices.deleted_at"
+            go_type: 
+              type: "time.Time"
+          - column: "transports.updated_at"
+            go_type: 
+              type: "time.Time"
+          - column: "transports.deleted_at"
+            go_type: 
+              type: "time.Time"
+        
