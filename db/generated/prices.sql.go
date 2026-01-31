@@ -7,8 +7,9 @@ package generated
 
 import (
 	"context"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const createPrice = `-- name: CreatePrice :one
@@ -19,7 +20,7 @@ returning price_id, cargo_type, cost, weight, distance, created_at, updated_at, 
 
 type CreatePriceParams struct {
 	CargoType string
-	Cost      pgtype.Numeric
+	Cost      decimal.Decimal
 	Weight    int32
 	Distance  int32
 }
@@ -92,12 +93,12 @@ type GetPricesPaginatedParams struct {
 type GetPricesPaginatedRow struct {
 	PriceID    int32
 	CargoType  string
-	Cost       pgtype.Numeric
+	Cost       decimal.Decimal
 	Weight     int32
 	Distance   int32
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 	TotalCount int64
 }
 
@@ -145,7 +146,7 @@ where price_id = $1
 type UpdatePriceParams struct {
 	PriceID   int32
 	CargoType string
-	Cost      pgtype.Numeric
+	Cost      decimal.Decimal
 	Weight    int32
 	Distance  int32
 }

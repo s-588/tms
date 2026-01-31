@@ -7,8 +7,9 @@ package generated
 
 import (
 	"context"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const createOrder = `-- name: CreateOrder :one
@@ -20,7 +21,7 @@ returning order_id, distance, weight, total_price, status, created_at, updated_a
 type CreateOrderParams struct {
 	Distance   int32
 	Weight     int32
-	TotalPrice pgtype.Numeric
+	TotalPrice decimal.Decimal
 	Status     string
 }
 
@@ -104,11 +105,11 @@ type GetOrderPaginatedRow struct {
 	OrderID    int32
 	Distance   int32
 	Weight     int32
-	TotalPrice pgtype.Numeric
+	TotalPrice decimal.Decimal
 	Status     string
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 	TotalCount int64
 }
 
@@ -159,15 +160,15 @@ type GetOrderTransportsParams struct {
 
 type GetOrderTransportsRow struct {
 	TransportID     int32
-	EmployeeID      pgtype.Int4
+	EmployeeID      *int32
 	Model           string
-	LicensePlate    pgtype.Text
+	LicensePlate    *string
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32
-	CreatedAt       pgtype.Timestamp
-	UpdatedAt       pgtype.Timestamp
-	DeletedAt       pgtype.Timestamp
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       time.Time
 	TotalCount      int64
 }
 
@@ -233,7 +234,7 @@ type UpdateOrderParams struct {
 	OrderID    int32
 	Distance   int32
 	Weight     int32
-	TotalPrice pgtype.Numeric
+	TotalPrice decimal.Decimal
 	Status     string
 }
 

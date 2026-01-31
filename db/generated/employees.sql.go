@@ -7,8 +7,7 @@ package generated
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const createEmployee = `-- name: CreateEmployee :one
@@ -72,9 +71,9 @@ type GetEmployeesPaginatedParams struct {
 type GetEmployeesPaginatedRow struct {
 	EmployeeID int32
 	Name       string
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 	TotalCount int64
 }
 

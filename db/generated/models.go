@@ -5,7 +5,9 @@
 package generated
 
 import (
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 type Client struct {
@@ -13,12 +15,12 @@ type Client struct {
 	Name                 string
 	Email                string
 	EmailVerified        bool
-	EmailToken           pgtype.Text
-	EmailTokenExpiration pgtype.Timestamp
+	EmailToken           *string
+	EmailTokenExpiration time.Time
 	Phone                string
-	CreatedAt            pgtype.Timestamp
-	UpdatedAt            pgtype.Timestamp
-	DeletedAt            pgtype.Timestamp
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	DeletedAt            time.Time
 }
 
 type ClientsOrder struct {
@@ -29,30 +31,30 @@ type ClientsOrder struct {
 type Employee struct {
 	EmployeeID int32
 	Name       string
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 }
 
 type Fuel struct {
 	FuelID    int32
 	Name      string
-	Supplier  pgtype.Text
-	Price     pgtype.Numeric
-	CreatedAt pgtype.Timestamp
-	UpdatedAt pgtype.Timestamp
-	DeletedAt pgtype.Timestamp
+	Supplier  *string
+	Price     decimal.Decimal
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt time.Time
 }
 
 type Order struct {
 	OrderID    int32
 	Distance   int32
 	Weight     int32
-	TotalPrice pgtype.Numeric
+	TotalPrice decimal.Decimal
 	Status     string
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 }
 
 type OrdersTransport struct {
@@ -63,23 +65,23 @@ type OrdersTransport struct {
 type Price struct {
 	PriceID   int32
 	CargoType string
-	Cost      pgtype.Numeric
+	Cost      decimal.Decimal
 	Weight    int32
 	Distance  int32
-	CreatedAt pgtype.Timestamp
-	UpdatedAt pgtype.Timestamp
-	DeletedAt pgtype.Timestamp
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt time.Time
 }
 
 type Transport struct {
 	TransportID     int32
-	EmployeeID      pgtype.Int4
+	EmployeeID      *int32
 	Model           string
-	LicensePlate    pgtype.Text
+	LicensePlate    *string
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32
-	CreatedAt       pgtype.Timestamp
-	UpdatedAt       pgtype.Timestamp
-	DeletedAt       pgtype.Timestamp
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       time.Time
 }

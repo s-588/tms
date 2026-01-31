@@ -7,8 +7,7 @@ package generated
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
+	"time"
 )
 
 const createTransport = `-- name: CreateTransport :one
@@ -18,9 +17,9 @@ returning transport_id, employee_id, model, license_plate, payload_capacity, fue
 `
 
 type CreateTransportParams struct {
-	EmployeeID      pgtype.Int4
+	EmployeeID      *int32
 	Model           string
-	LicensePlate    pgtype.Text
+	LicensePlate    *string
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32
@@ -99,15 +98,15 @@ type GetTransportsPaginatedParams struct {
 
 type GetTransportsPaginatedRow struct {
 	TransportID     int32
-	EmployeeID      pgtype.Int4
+	EmployeeID      *int32
 	Model           string
-	LicensePlate    pgtype.Text
+	LicensePlate    *string
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32
-	CreatedAt       pgtype.Timestamp
-	UpdatedAt       pgtype.Timestamp
-	DeletedAt       pgtype.Timestamp
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       time.Time
 	TotalCount      int64
 }
 
@@ -158,9 +157,9 @@ where transport_id = $1
 
 type UpdateTransportParams struct {
 	TransportID     int32
-	EmployeeID      pgtype.Int4
+	EmployeeID      *int32
 	Model           string
-	LicensePlate    pgtype.Text
+	LicensePlate    *string
 	PayloadCapacity int32
 	FuelID          int32
 	FuelConsumption int32

@@ -7,8 +7,9 @@ package generated
 
 import (
 	"context"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const createFuel = `-- name: CreateFuel :one
@@ -19,8 +20,8 @@ returning fuel_id, name, supplier, price, created_at, updated_at, deleted_at
 
 type CreateFuelParams struct {
 	Name     string
-	Supplier pgtype.Text
-	Price    pgtype.Numeric
+	Supplier *string
+	Price    decimal.Decimal
 }
 
 // Create new fuel type
@@ -84,11 +85,11 @@ type GetFuelsPaginatedParams struct {
 type GetFuelsPaginatedRow struct {
 	FuelID     int32
 	Name       string
-	Supplier   pgtype.Text
-	Price      pgtype.Numeric
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	Supplier   *string
+	Price      decimal.Decimal
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 	TotalCount int64
 }
 
@@ -134,8 +135,8 @@ where fuel_id = $1
 type UpdateFuelParams struct {
 	FuelID   int32
 	Name     string
-	Supplier pgtype.Text
-	Price    pgtype.Numeric
+	Supplier *string
+	Price    decimal.Decimal
 }
 
 // Update fuel type fields

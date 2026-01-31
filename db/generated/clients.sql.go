@@ -7,8 +7,9 @@ package generated
 
 import (
 	"context"
+	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const createClient = `-- name: CreateClient :one
@@ -110,11 +111,11 @@ type GetClientOrdersRow struct {
 	OrderID    int32
 	Distance   int32
 	Weight     int32
-	TotalPrice pgtype.Numeric
+	TotalPrice decimal.Decimal
 	Status     string
-	CreatedAt  pgtype.Timestamp
-	UpdatedAt  pgtype.Timestamp
-	DeletedAt  pgtype.Timestamp
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	DeletedAt  time.Time
 	TotalCount int64
 }
 
@@ -166,12 +167,12 @@ type GetClientsPaginatedRow struct {
 	Name                 string
 	Email                string
 	EmailVerified        bool
-	EmailToken           pgtype.Text
-	EmailTokenExpiration pgtype.Timestamp
+	EmailToken           *string
+	EmailTokenExpiration time.Time
 	Phone                string
-	CreatedAt            pgtype.Timestamp
-	UpdatedAt            pgtype.Timestamp
-	DeletedAt            pgtype.Timestamp
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	DeletedAt            time.Time
 	TotalCount           int64
 }
 
@@ -257,7 +258,7 @@ UPDATE clients SET email_verified = true WHERE email_token = $1
 `
 
 // Verify client email by token
-func (q *Queries) VerifyClientEmail(ctx context.Context, emailToken pgtype.Text) error {
+func (q *Queries) VerifyClientEmail(ctx context.Context, emailToken *string) error {
 	_, err := q.db.Exec(ctx, verifyClientEmail, emailToken)
 	return err
 }
