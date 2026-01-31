@@ -42,3 +42,7 @@ func (s Server) Start() error {
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	template.Index().Render(r.Context(), w)
 }
+
+func (s Server) Stop() {
+	s.DB.Close()
+}
