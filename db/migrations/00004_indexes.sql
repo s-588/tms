@@ -1,49 +1,48 @@
 -- +goose Up
 -- +goose StatementBegin
-create index idx_clients_client_id on clients(client_id);
+CREATE INDEX idx_clients_deleted_at ON clients(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_employees_deleted_at ON employees(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_fuels_deleted_at ON fuels(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_orders_deleted_at ON orders(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_prices_deleted_at ON prices(deleted_at) WHERE deleted_at IS NULL;
+CREATE INDEX idx_transports_deleted_at ON transports(deleted_at) WHERE deleted_at IS NULL;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-create index idx_employees_employee_id on employees(employee_id);
+CREATE INDEX idx_transports_employee_id ON transports(employee_id);
+CREATE INDEX idx_transports_fuel_id ON transports(fuel_id);
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-create index idx_fuels_fuel_id on fuels(fuel_id);
--- +goose StatementEnd
+CREATE INDEX idx_clients_email_token ON clients(email_token) WHERE email_token IS NOT NULL;
 
--- +goose StatementBegin
-create index idx_orders_order_id on orders(order_id);
--- +goose StatementEnd
+-- For email uniqueness
+CREATE UNIQUE INDEX idx_clients_email_unique ON clients(email) WHERE deleted_at IS NULL;
 
--- +goose StatementBegin
-create index idx_prices_price_id on prices(price_id);
--- +goose StatementEnd
-
--- +goose StatementBegin
-create index idx_transports_transport_id on transports(transport_id);
+CREATE INDEX idx_orders_status ON orders(status);
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-drop index idx_clients_client_id;
+DROP INDEX IF EXISTS idx_clients_deleted_at;
+DROP INDEX IF EXISTS idx_employees_deleted_at;
+DROP INDEX IF EXISTS idx_fuels_deleted_at;
+DROP INDEX IF EXISTS idx_orders_deleted_at;
+DROP INDEX IF EXISTS idx_prices_deleted_at;
+DROP INDEX IF EXISTS idx_transports_deleted_at;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-drop index idx_employees_employee_id;
+DROP INDEX IF EXISTS idx_clients_orders_client_id;
+DROP INDEX IF EXISTS idx_clients_orders_order_id;
+DROP INDEX IF EXISTS idx_orders_transports_order_id;
+DROP INDEX IF EXISTS idx_orders_transports_transport_id;
+DROP INDEX IF EXISTS idx_transports_employee_id;
+DROP INDEX IF EXISTS idx_transports_fuel_id;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-drop index idx_fuels_fuel_id;
--- +goose StatementEnd
-
--- +goose StatementBegin
-drop index idx_orders_order_id;
--- +goose StatementEnd
-
--- +goose StatementBegin
-drop index idx_prices_price_id;
--- +goose StatementEnd
-
--- +goose StatementBegin
-drop index idx_transports_transport_id;
+DROP INDEX IF EXISTS idx_clients_email_token;
+DROP INDEX IF EXISTS idx_clients_email_unique;
+DROP INDEX IF EXISTS idx_orders_status;
 -- +goose StatementEnd
