@@ -1,6 +1,6 @@
 -- Get paginated transports list
 -- name: GetTransportsPaginated :many
-select *,count(*) as total_count   from transports t
+select *,count(*) over() as total_count   from transports t
 where t.deleted_at is null
 order by transport_id
 limit $1 offset $2;

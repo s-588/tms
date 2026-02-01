@@ -1,6 +1,6 @@
 -- Get paginated employees list
 -- name: GetEmployeesPaginated :many
-select *,count(*) as total_count   from employees e
+select *,count(*) over() as total_count   from employees e
 where e.deleted_at is null
 order by employee_id
 limit $1 offset $2;

@@ -1,6 +1,6 @@
 -- Get paginated prices list
 -- name: GetPricesPaginated :many
-select *,count(*) as total_count   from prices p
+select *,count(*) over() as total_count   from prices p
 where p.deleted_at is null
 order by price_id
 limit $1 offset $2;

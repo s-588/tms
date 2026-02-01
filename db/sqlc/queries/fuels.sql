@@ -1,6 +1,6 @@
 -- Get paginated fuel types list
 -- name: GetFuelsPaginated :many
-select *,count(*) as total_count   from fuels f
+select *,count(*) over() as total_count   from fuels f
 where f.deleted_at is null
 order by fuel_id
 limit $1 offset $2;

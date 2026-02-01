@@ -1,9 +1,9 @@
 -- Get paginated client list
 -- name: GetClientsPaginated :many
-SELECT *,count(*) as total_count FROM clients
+SELECT *,count(*) over() as total_count FROM clients
 WHERE deleted_at IS NULL
 ORDER BY client_id
-LIMIT $1 OFFSET $2;
+LIMIT $1 OFFSET $2 ;
 
 -- Get single client by client_id
 -- name: GetClientByclient_id :one
@@ -35,7 +35,7 @@ UPDATE clients SET email_verified = true WHERE email_token = $1;
 
 -- Get client's orders
 -- name: GetClientOrders :many
-SELECT o.*,count(*) as total_count  FROM orders o
+SELECT o.*,count(*) over() as total_count  FROM orders o
 JOIN clients_orders co ON o.order_id = co.order_id
 WHERE co.client_id = $1 and o.deleted_at is null
 ORDER BY co.client_id

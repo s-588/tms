@@ -1,6 +1,6 @@
 -- Get paginated order list
 -- name: GetOrderPaginated :many
-select *,count(*) as total_count   from orders o
+select *,count(*) over() as total_count   from orders o
 where o.deleted_at is null
 order by order_id
 limit $1 offset $2;
@@ -30,7 +30,7 @@ where order_id = $1;
 
 -- Get order's transports
 -- name: GetOrderTransports :many
-select t.*,count(*) as total_count   from transports t
+select t.*,count(*) over() as total_count   from transports t
 join orders_transports ot on t.transport_id = ot.transport_id
 where ot.order_id = $1 and t.deleted_at is null
 order by ot.order_id
