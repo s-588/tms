@@ -7,22 +7,23 @@ import (
 
 	"github.com/s-588/tms/config"
 	"github.com/s-588/tms/db"
+	"github.com/s-588/tms/http/handler"
 	"github.com/s-588/tms/static/template"
 )
 
 type Server struct {
-	Port string
-	Cfg  config.ServerConfig
-	DB   db.DB
-	mux  *http.ServeMux
+	Port    string
+	Cfg     config.ServerConfig
+	Handler handler.Handler
+	mux     *http.ServeMux
 }
 
 func New(ctx context.Context, db db.DB, cfg config.ServerConfig) *Server {
 	return &Server{
-		Port: cfg.Port,
-		DB:   db,
-		Cfg:  cfg,
-		mux:  http.NewServeMux(),
+		Port:    cfg.Port,
+		Cfg:     cfg,
+		mux:     http.NewServeMux(),
+		Handler: handler.NewHandler(db),
 	}
 }
 
@@ -44,5 +45,5 @@ func IndexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s Server) Stop() {
-	s.DB.Close()
+	s.Handler.DB.Close()
 }
