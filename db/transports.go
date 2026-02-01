@@ -67,9 +67,9 @@ func (db DB) GetTransportsPaginatedWrapper(ctx context.Context, limit, offset in
 			PayloadCapacity: row.PayloadCapacity,
 			FuelID:          row.FuelID,
 			FuelConsumption: row.FuelConsumption,
-			CreatedAt:       row.CreatedAt,
-			UpdatedAt:       row.UpdatedAt,
-			DeletedAt:       row.DeletedAt,
+			CreatedAt:       row.CreatedAt.Time,
+			UpdatedAt:       row.UpdatedAt.Time,
+			DeletedAt:       row.DeletedAt.Time,
 		}
 		transports = append(transports, transport)
 	}
@@ -106,8 +106,8 @@ func convertGeneratedTransportToModel(genTransport generated.Transport) models.T
 		PayloadCapacity: genTransport.PayloadCapacity,
 		FuelID:          genTransport.FuelID,
 		FuelConsumption: genTransport.FuelConsumption,
-		CreatedAt:       genTransport.CreatedAt,
-		UpdatedAt:       genTransport.UpdatedAt,
-		DeletedAt:       genTransport.DeletedAt,
+		CreatedAt:       genTransport.CreatedAt.Time,
+		UpdatedAt:       genTransport.UpdatedAt.Time,
+		DeletedAt:       genTransport.DeletedAt.Time,
 	}
 }

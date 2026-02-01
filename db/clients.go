@@ -62,9 +62,9 @@ func (db DB) GetClientOrders(ctx context.Context, clientID, limit, offset int) (
 			Weight:     row.Weight,
 			TotalPrice: row.TotalPrice.String(),
 			Status:     row.Status,
-			CreatedAt:  row.CreatedAt,
-			UpdatedAt:  row.UpdatedAt,
-			DeletedAt:  row.DeletedAt,
+			CreatedAt:  row.CreatedAt.Time,
+			UpdatedAt:  row.UpdatedAt.Time,
+			DeletedAt:  row.DeletedAt.Time,
 		}
 		orders = append(orders, order)
 	}
@@ -125,11 +125,11 @@ func convertGeneratedClientToModel(genClient generated.Client) models.Client {
 		Email:                genClient.Email,
 		EmailVerified:        genClient.EmailVerified,
 		EmailToken:           genClient.EmailToken,
-		EmailTokenExpiration: genClient.EmailTokenExpiration,
+		EmailTokenExpiration: genClient.EmailTokenExpiration.Time,
 		Phone:                genClient.Phone,
-		CreatedAt:            genClient.CreatedAt,
-		UpdatedAt:            genClient.UpdatedAt,
-		DeletedAt:            genClient.DeletedAt,
+		CreatedAt:            genClient.CreatedAt.Time,
+		UpdatedAt:            genClient.UpdatedAt.Time,
+		DeletedAt:            genClient.DeletedAt.Time,
 	}
 }
 
@@ -140,10 +140,10 @@ func convertGeneratedClientPaginatedRowToModel(row generated.GetClientsPaginated
 		Email:                row.Email,
 		EmailVerified:        row.EmailVerified,
 		EmailToken:           row.EmailToken,
-		EmailTokenExpiration: row.EmailTokenExpiration,
+		EmailTokenExpiration: row.EmailTokenExpiration.Time,
 		Phone:                row.Phone,
-		CreatedAt:            row.CreatedAt,
-		UpdatedAt:            row.UpdatedAt,
-		DeletedAt:            row.DeletedAt,
+		CreatedAt:            row.CreatedAt.Time,
+		UpdatedAt:            row.UpdatedAt.Time,
+		DeletedAt:            row.DeletedAt.Time,
 	}
 }

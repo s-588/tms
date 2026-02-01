@@ -67,9 +67,9 @@ func (db DB) GetOrdersPaginatedWrapper(ctx context.Context, limit, offset int) (
 			Weight:     row.Weight,
 			TotalPrice: row.TotalPrice.String(),
 			Status:     row.Status,
-			CreatedAt:  row.CreatedAt,
-			UpdatedAt:  row.UpdatedAt,
-			DeletedAt:  row.DeletedAt,
+			CreatedAt:  row.CreatedAt.Time,
+			UpdatedAt:  row.UpdatedAt.Time,
+			DeletedAt:  row.DeletedAt.Time,
 		}
 		orders = append(orders, order)
 	}
@@ -101,9 +101,9 @@ func (db DB) GetOrderTransportsWrapper(ctx context.Context, orderID, limit, offs
 			PayloadCapacity: row.PayloadCapacity,
 			FuelID:          row.FuelID,
 			FuelConsumption: row.FuelConsumption,
-			CreatedAt:       row.CreatedAt,
-			UpdatedAt:       row.UpdatedAt,
-			DeletedAt:       row.DeletedAt,
+			CreatedAt:       row.CreatedAt.Time,
+			UpdatedAt:       row.UpdatedAt.Time,
+			DeletedAt:       row.DeletedAt.Time,
 		}
 		transports = append(transports, transport)
 	}
@@ -143,8 +143,8 @@ func convertGeneratedOrderToModel(genOrder generated.Order) models.Order {
 		Weight:     genOrder.Weight,
 		TotalPrice: genOrder.TotalPrice.String(),
 		Status:     genOrder.Status,
-		CreatedAt:  genOrder.CreatedAt,
-		UpdatedAt:  genOrder.UpdatedAt,
-		DeletedAt:  genOrder.DeletedAt,
+		CreatedAt:  genOrder.CreatedAt.Time,
+		UpdatedAt:  genOrder.UpdatedAt.Time,
+		DeletedAt:  genOrder.DeletedAt.Time,
 	}
 }

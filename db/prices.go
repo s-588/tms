@@ -63,9 +63,9 @@ func (db DB) GetPricesPaginatedWrapper(ctx context.Context, limit, offset int) (
 			Cost:      row.Cost.String(),
 			Weight:    row.Weight,
 			Distance:  row.Distance,
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
-			DeletedAt: row.DeletedAt,
+			CreatedAt: row.CreatedAt.Time,
+			UpdatedAt: row.UpdatedAt.Time,
+			DeletedAt: row.DeletedAt.Time,
 		}
 		prices = append(prices, price)
 	}
@@ -97,8 +97,8 @@ func convertGeneratedPriceToModel(genPrice generated.Price) models.Price {
 		Cost:      genPrice.Cost.String(),
 		Weight:    genPrice.Weight,
 		Distance:  genPrice.Distance,
-		CreatedAt: genPrice.CreatedAt,
-		UpdatedAt: genPrice.UpdatedAt,
-		DeletedAt: genPrice.DeletedAt,
+		CreatedAt: genPrice.CreatedAt.Time,
+		UpdatedAt: genPrice.UpdatedAt.Time,
+		DeletedAt: genPrice.DeletedAt.Time,
 	}
 }

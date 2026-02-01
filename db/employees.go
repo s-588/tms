@@ -47,9 +47,9 @@ func (db DB) GetEmployeesPaginatedWrapper(ctx context.Context, limit, offset int
 		employee := models.Employee{
 			EmployeeID: row.EmployeeID,
 			Name:       row.Name,
-			CreatedAt:  row.CreatedAt,
-			UpdatedAt:  row.UpdatedAt,
-			DeletedAt:  row.DeletedAt,
+			CreatedAt:  row.CreatedAt.Time,
+			UpdatedAt:  row.UpdatedAt.Time,
+			DeletedAt:  row.DeletedAt.Time,
 		}
 		employees = append(employees, employee)
 	}
@@ -70,8 +70,8 @@ func convertGeneratedEmployeeToModel(genEmployee generated.Employee) models.Empl
 	return models.Employee{
 		EmployeeID: genEmployee.EmployeeID,
 		Name:       genEmployee.Name,
-		CreatedAt:  genEmployee.CreatedAt,
-		UpdatedAt:  genEmployee.UpdatedAt,
-		DeletedAt:  genEmployee.DeletedAt,
+		CreatedAt:  genEmployee.CreatedAt.Time,
+		UpdatedAt:  genEmployee.UpdatedAt.Time,
+		DeletedAt:  genEmployee.DeletedAt.Time,
 	}
 }

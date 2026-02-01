@@ -61,9 +61,9 @@ func (db DB) GetFuelsPaginatedWrapper(ctx context.Context, limit, offset int) ([
 			Name:      row.Name,
 			Supplier:  row.Supplier,
 			Price:     row.Price.String(),
-			CreatedAt: row.CreatedAt,
-			UpdatedAt: row.UpdatedAt,
-			DeletedAt: row.DeletedAt,
+			CreatedAt: row.CreatedAt.Time,
+			UpdatedAt: row.UpdatedAt.Time,
+			DeletedAt: row.DeletedAt.Time,
 		}
 		fuels = append(fuels, fuel)
 	}
@@ -92,8 +92,8 @@ func convertGeneratedFuelToModel(genFuel generated.Fuel) models.Fuel {
 		Name:      genFuel.Name,
 		Supplier:  genFuel.Supplier,
 		Price:     genFuel.Price.String(),
-		CreatedAt: genFuel.CreatedAt,
-		UpdatedAt: genFuel.UpdatedAt,
-		DeletedAt: genFuel.DeletedAt,
+		CreatedAt: genFuel.CreatedAt.Time,
+		UpdatedAt: genFuel.UpdatedAt.Time,
+		DeletedAt: genFuel.DeletedAt.Time,
 	}
 }
