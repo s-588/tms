@@ -1,0 +1,569 @@
+package tables
+
+import (
+	"fmt"
+	"github.com/s-588/tms/models"
+	. "github.com/s-588/tms/static/template/components"
+	"time"
+)
+
+templ PricesTable(prices []models.Price, limit, offset, totalCount int, filter models.PriceFilter) {
+	<div class="box">
+		<!-- Operations Bar -->
+		<div class="level mb-5">
+			<div class="level-left">
+				<div class="level-item">
+					<button
+						class="button is-primary"
+						hx-get="/prices/new"
+						hx-target="#modal-container"
+						hx-push-url="true"
+					>
+						<span class="icon"><i class="fas fa-plus"></i></span>
+						<span>New Price Configuration</span>
+					</button>
+				</div>
+				<div class="level-item">
+					<button
+						class="button is-danger"
+						id="delete-selected"
+						hx-delete="/prices"
+						hx-include="[name='selected_ids']:checked"
+						hx-target="#prices-table"
+						hx-confirm="Are you sure you want to delete selected price entries?"
+					>
+						<span class="icon"><i class="fas fa-trash"></i></span>
+						<span>Delete Selected</span>
+					</button>
+				</div>
+				<div class="level-item">
+					<button
+						class="button is-info"
+						hx-get={ "/prices/export?" + filter.ToQueryString() }
+						hx-target="_blank"
+					>
+						<span class="icon"><i class="fas fa-download"></i></span>
+						<span>Export</span>
+					</button>
+				</div>
+			</div>
+		</div>
+		<!-- Filter Bar -->
+		<div class="box mb-5">
+			<form id="price-filter-form" hx-get="/prices" hx-target="#prices-table" hx-push-url="true">
+				<div class="field is-horizontal">
+					<div class="field-body">
+						<div class="field">
+							<label class="label is-small">Cargo Type</label>
+							<div class="control">
+								// TODO: add cargo type collection
+								/*
+								<input class="input is-small" type="text" name="cargo_type" placeholder="Search cargo type" value={ strings.Join(filter.CargoType.Value, ",") }/>
+								<p class="help is-small">Comma-separated for multiple values</p>
+                                */
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Cost Min</label>
+							<div class="control">
+								<input class="input is-small" type="number" step="0.01" name="cost_min" placeholder="Min" value={ filter.CostMin.Value }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Cost Max</label>
+							<div class="control">
+								<input class="input is-small" type="number" step="0.01" name="cost_max" placeholder="Max" value={ filter.CostMax.Value }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Weight Coef Min</label>
+							<div class="control">
+								<input class="input is-small" type="number" name="weight_min" placeholder="Min" value={ filter.WeightMin.Value }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Weight Coef Max</label>
+							<div class="control">
+								<input class="input is-small" type="number" name="weight_max" placeholder="Max" value={ filter.WeightMax.Value }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Distance Coef Min</label>
+							<div class="control">
+								<input class="input is-small" type="number" name="distance_min" placeholder="Min" value={ filter.DistanceMin.Value }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Distance Coef Max</label>
+							<div class="control">
+								<input class="input is-small" type="number" name="distance_max" placeholder="Max" value={ filter.DistanceMax.Value }/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal mt-3">
+					<div class="field-body">
+						<div class="field">
+							<label class="label is-small">Created From</label>
+							<div class="control">
+								<input class="input is-small" type="date" name="created_from" value={ filter.CreatedFrom.Value.Format(time.DateTime) }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Created To</label>
+							<div class="control">
+								<input class="input is-small" type="date" name="created_to" value={ filter.CreatedTo.Value.Format(time.DateTime) }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Updated From</label>
+							<div class="control">
+								<input class="input is-small" type="date" name="updated_from" value={ filter.UpdatedFrom.Value.Format(time.DateTime) }/>
+							</div>
+						</div>
+						<div class="field">
+							<label class="label is-small">Updated To</label>
+							<div class="control">
+								<input class="input is-small" type="date" name="updated_to" value={ filter.UpdatedTo.Value.Format(time.DateTime) }/>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="field is-horizontal mt-3">
+					<div class="field-body">
+						<div class="field">
+							<div class="control">
+								<button class="button is-primary is-small" type="submit">
+									<span class="icon"><i class="fas fa-filter"></i></span>
+									<span>Apply Filters</span>
+								</button>
+								<button
+									class="button is-light is-small"
+									type="button"
+									hx-get="/prices"
+									hx-target="#prices-table"
+									hx-push-url="true"
+								>
+									Clear Filters
+								</button>
+							</div>
+						</div>
+					</div>
+				</div>
+			</form>
+		</div>
+		<!-- Table -->
+		<div class="table-container">
+			<table class="table is-fullwidth is-striped is-hoverable">
+				<thead>
+					<tr>
+						<th><input type="checkbox" id="select-all-prices" onchange="toggleAllCheckboxes(this, 'price-checkbox')"/></th>
+						<th>
+							<a href={ "/prices?sort=price_id&order=" + GetSortOrder("price_id", filter.SortBy.Value, filter.SortOrder.Value) }>
+								ID { GetSortIcon("price_id", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>
+							<a href={ "/prices?sort=cargo_type&order=" + GetSortOrder("cargo_type", filter.SortBy.Value, filter.SortOrder.Value) }>
+								Cargo Type { GetSortIcon("cargo_type", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>
+							<a href={ "/prices?sort=cost&order=" + GetSortOrder("cost", filter.SortBy.Value, filter.SortOrder.Value) }>
+								Cost Coefficient { GetSortIcon("cost", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>
+							<a href={ "/prices?sort=weight&order=" + GetSortOrder("weight", filter.SortBy.Value, filter.SortOrder.Value) }>
+								Weight Coef { GetSortIcon("weight", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>
+							<a href={ "/prices?sort=distance&order=" + GetSortOrder("distance", filter.SortBy.Value, filter.SortOrder.Value) }>
+								Distance Coef { GetSortIcon("distance", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>
+							<a href={ "/prices?sort=created_at&order=" + GetSortOrder("created_at", filter.SortBy.Value, filter.SortOrder.Value) }>
+								Created { GetSortIcon("created_at", filter.SortBy.Value, filter.SortOrder.Value) }
+							</a>
+						</th>
+						<th>Actions</th>
+					</tr>
+				</thead>
+				<tbody>
+					if len(prices) == 0 {
+						<tr>
+							<td colspan="8" class="has-text-centered py-6">
+								<div class="content">
+									<span class="icon is-large has-text-grey-light">
+										<i class="fas fa-tag fa-2x"></i>
+									</span>
+									<p class="mt-3 has-text-grey">No price entries found</p>
+								</div>
+							</td>
+						</tr>
+					} else {
+						for _, price := range prices {
+							<tr>
+								<td><input type="checkbox" name="selected_ids" value={ fmt.Sprintf("%d", price.PriceID) } class="price-checkbox"/></td>
+								<td>
+									<span class="tag is-light is-family-monospace">{ price.PriceID }</span>
+								</td>
+								<td>
+									<span class="has-text-weight-medium">{ price.CargoType }</span>
+								</td>
+								<td>
+									<span class="tag is-info is-light">{ price.Cost }</span>
+								</td>
+								<td>{ price.Weight }</td>
+								<td>{ price.Distance }</td>
+								<td>
+									<time datetime={ price.CreatedAt.Format(time.RFC3339) } title={ price.CreatedAt.Format("Jan 2, 2006 15:04:05") }>
+										{ price.CreatedAt.Format("2006-01-02") }
+									</time>
+								</td>
+								<td>
+									<div class="buttons are-small is-justify-content-end">
+										<button
+											class="button is-info is-outlined"
+											title="Edit price"
+											hx-get={ fmt.Sprintf("/prices/%d/edit", price.PriceID) }
+											hx-push-url="true"
+											hx-target="#modal-container"
+											hx-swap="innerHTML"
+										>
+											<span class="icon">
+												<i class="fas fa-edit"></i>
+											</span>
+										</button>
+										<button
+											class="button is-danger is-outlined"
+											title="Delete price"
+											hx-delete={ fmt.Sprintf("/prices/%d", price.PriceID) }
+											hx-target="closest tr"
+											hx-swap="outerHTML swap:1s"
+											hx-confirm="Are you sure you want to delete this price entry?"
+										>
+											<span class="icon">
+												<i class="fas fa-trash"></i>
+											</span>
+										</button>
+										<a
+											class="button is-link is-outlined"
+											title="View details"
+											href={ fmt.Sprintf("/prices/%d", price.PriceID) }
+										>
+											<span class="icon">
+												<i class="fas fa-eye"></i>
+											</span>
+										</a>
+									</div>
+								</td>
+							</tr>
+						}
+					}
+				</tbody>
+			</table>
+		</div>
+		if totalCount > 0 {
+			@Pagination("/prices", totalCount, limit, offset, filter)
+		}
+	</div>
+}
+
+templ PriceRow(price models.Price) {
+	<tr>
+		<td>
+			<span class="tag is-light is-family-monospace">{ price.PriceID }</span>
+		</td>
+		<td>
+			<span class="has-text-weight-medium">{ price.CargoType }</span>
+		</td>
+		<td>
+			<span class="tag is-info is-light">{ price.Cost }</span>
+		</td>
+		<td>{ price.Weight }</td>
+		<td>{ price.Distance }</td>
+		<td>
+			<time datetime={ price.CreatedAt.Format(time.RFC3339) } title={ price.CreatedAt.Format("Jan 2, 2006 15:04:05") }>
+				{ price.CreatedAt.Format("2006-01-02") }
+			</time>
+		</td>
+		<td>
+			<div class="buttons are-small is-justify-content-end">
+				<button
+					class="button is-info is-outlined"
+					title="Edit price"
+					hx-get={ fmt.Sprintf("/prices/%d/edit", price.PriceID) }
+					hx-push-url="true"
+					hx-target="#modal-container"
+					hx-swap="innerHTML"
+				>
+					<span class="icon">
+						<i class="fas fa-edit"></i>
+					</span>
+				</button>
+				<button
+					class="button is-danger is-outlined"
+					title="Delete price"
+					hx-delete={ fmt.Sprintf("/prices/%d", price.PriceID) }
+					hx-target="closest tr"
+					hx-swap="outerHTML swap:1s"
+					hx-confirm="Are you sure you want to delete this price entry?"
+				>
+					<span class="icon">
+						<i class="fas fa-trash"></i>
+					</span>
+				</button>
+				<a
+					class="button is-link is-outlined"
+					title="View details"
+					href={ fmt.Sprintf("/prices/%d", price.PriceID) }
+				>
+					<span class="icon">
+						<i class="fas fa-eye"></i>
+					</span>
+				</a>
+			</div>
+		</td>
+	</tr>
+}
+
+templ PriceDetail(price models.Price) {
+	<div class="box">
+		<div class="level">
+			<div class="level-left">
+				<div class="level-item">
+					<div>
+						<h1 class="title">{ price.CargoType }</h1>
+						<h2 class="subtitle">Price Configuration #{ price.PriceID }</h2>
+					</div>
+				</div>
+			</div>
+			<div class="level-right">
+				<div class="level-item">
+					<div class="buttons">
+						<a class="button is-info" href={ fmt.Sprintf("/prices/%d/edit", price.PriceID) }>
+							<span class="icon"><i class="fas fa-edit"></i></span>
+							<span>Edit</span>
+						</a>
+						<button
+							class="button is-danger"
+							hx-delete={ fmt.Sprintf("/prices/%d", price.PriceID) }
+							hx-confirm="Are you sure you want to delete this price configuration?"
+							hx-redirect="/prices"
+						>
+							<span class="icon"><i class="fas fa-trash"></i></span>
+							<span>Delete</span>
+						</button>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="content">
+			<div class="columns">
+				<div class="column">
+					<h3 class="title is-5">Price Configuration</h3>
+					<table class="table is-striped">
+						<tbody>
+							<tr>
+								<th>Cargo Type</th>
+								<td>{ price.CargoType }</td>
+							</tr>
+							<tr>
+								<th>Cost Coefficient</th>
+								<td>
+									<span class="tag is-info is-large">{ price.Cost }</span>
+								</td>
+							</tr>
+							<tr>
+								<th>Weight Coefficient</th>
+								<td>{ price.Weight }</td>
+							</tr>
+							<tr>
+								<th>Distance Coefficient</th>
+								<td>{ price.Distance }</td>
+							</tr>
+						</tbody>
+					</table>
+				</div>
+				<div class="column">
+					<h3 class="title is-5">Timestamps</h3>
+					<table class="table is-striped">
+						<tbody>
+							<tr>
+								<th>Created</th>
+								<td>{ price.CreatedAt.Format("2006-01-02 15:04:05") }</td>
+							</tr>
+							<tr>
+								<th>Updated</th>
+								<td>{ price.UpdatedAt.Format("2006-01-02 15:04:05") }</td>
+							</tr>
+							if !price.DeletedAt.IsZero() {
+								<tr>
+									<th>Deleted</th>
+									<td class="has-text-danger">{ price.DeletedAt.Format("2006-01-02 15:04:05") }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		</div>
+	</div>
+}
+
+templ PriceEditForm(price models.Price, errors map[string]string) {
+	<form hx-put={ fmt.Sprintf("/prices/%d", price.PriceID) } hx-target="#main-content">
+		<div class="field">
+			<label class="label">Cargo Type</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "cargo_type")) }
+					type="text"
+					name="cargo_type"
+					value={ price.CargoType }
+					required
+				/>
+			</div>
+			if err, ok := errors["cargo_type"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Cost Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "cost")) }
+					type="text"
+					name="cost"
+					value={ price.Cost }
+					required
+				/>
+			</div>
+			if err, ok := errors["cost"]; ok {
+				<p class="help is-danger">{ err }</p>
+			} else {
+				<p class="help">Format: 0.00 (e.g., 1.25 for 25% increase)</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Weight Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "weight")) }
+					type="number"
+					name="weight"
+					value={ fmt.Sprintf("%d", price.Weight) }
+					min="0"
+					required
+				/>
+			</div>
+			if err, ok := errors["weight"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Distance Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "distance")) }
+					type="number"
+					name="distance"
+					value={ fmt.Sprintf("%d", price.Distance) }
+					min="0"
+					required
+				/>
+			</div>
+			if err, ok := errors["distance"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field is-grouped">
+			<div class="control">
+				<button type="submit" class="button is-primary">Save Changes</button>
+			</div>
+			<div class="control">
+				<button type="button" class="button is-light" onclick="closeModal()">Cancel</button>
+			</div>
+		</div>
+	</form>
+}
+
+templ PriceCreateForm(errors map[string]string) {
+	<form hx-post="/prices" hx-target="#main-content">
+		<div class="field">
+			<label class="label">Cargo Type</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "cargo_type")) }
+					type="text"
+					name="cargo_type"
+					placeholder="Enter cargo type"
+					required
+				/>
+			</div>
+			if err, ok := errors["cargo_type"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Cost Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "cost")) }
+					type="text"
+					name="cost"
+					placeholder="Enter cost coefficient"
+					required
+				/>
+			</div>
+			if err, ok := errors["cost"]; ok {
+				<p class="help is-danger">{ err }</p>
+			} else {
+				<p class="help">Format: 0.00 (e.g., 1.25 for 25% increase)</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Weight Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "weight")) }
+					type="number"
+					name="weight"
+					placeholder="Enter weight coefficient"
+					min="0"
+					required
+				/>
+			</div>
+			if err, ok := errors["weight"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field">
+			<label class="label">Distance Coefficient</label>
+			<div class="control">
+				<input
+					class={ fmt.Sprintf("input %s", GetErrorClass(errors, "distance")) }
+					type="number"
+					name="distance"
+					placeholder="Enter distance coefficient"
+					min="0"
+					required
+				/>
+			</div>
+			if err, ok := errors["distance"]; ok {
+				<p class="help is-danger">{ err }</p>
+			}
+		</div>
+		<div class="field is-grouped">
+			<div class="control">
+				<button type="submit" class="button is-primary">Create Price Configuration</button>
+			</div>
+			<div class="control">
+				<button type="button" class="button is-light" onclick="closeModal()">Cancel</button>
+			</div>
+		</div>
+	</form>
+}

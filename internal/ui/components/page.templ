@@ -1,0 +1,145 @@
+package components
+
+import (
+	"fmt"
+	"github.com/s-588/tms/models"
+)
+
+templ Pagination(baseURL string, totalCount, limit, offset int, filter models.Filter) {
+	{{
+		currentPage := offset/limit + 1
+		totalPages := (totalCount + limit - 1) / limit
+
+		// Convert filter to query string
+		filterQuery := filter
+	}}
+	<nav class="pagination is-centered mt-5" role="navigation" aria-label="pagination">
+		<div class="pagination-info has-text-grey is-size-7 mr-4">
+			Showing { offset + 1 } to { min(offset + limit, totalCount) } of { totalCount } items
+		</div>
+		// Previous button
+		if currentPage <= 1 {
+			<button class="pagination-previous button is-small" disabled>
+				<span class="icon is-small">
+					<i class="fas fa-chevron-left"></i>
+				</span>
+			</button>
+		} else {
+			<a
+				class="pagination-previous button is-small"
+				hx-get={ fmt.Sprintf("%s?limit=%d&offset=%d&%s", baseURL, limit, max(0, offset-limit), filterQuery) }
+				hx-push-url="true"
+				hx-target="#main-content"
+				hx-swap="innerHTML"
+			>
+				<span class="icon is-small">
+					<i class="fas fa-chevron-left"></i>
+				</span>
+			</a>
+		}
+		// Next button
+		if currentPage >= totalPages {
+			<button class="pagination-next button is-small" disabled>
+				<span class="icon is-small">
+					<i class="fas fa-chevron-right"></i>
+				</span>
+			</button>
+		} else {
+			<a
+				class="pagination-next button is-small"
+				hx-get={ fmt.Sprintf("%s?limit=%d&offset=%d&%s", baseURL, limit, offset+limit, filterQuery) }
+				hx-push-url="true"
+				hx-target="#main-content"
+				hx-swap="innerHTML"
+			>
+				<span class="icon is-small">
+					<i class="fas fa-chevron-right"></i>
+				</span>
+			</a>
+		}
+		<ul class="pagination-list">
+			// First page
+			if currentPage == 1 {
+				<li><a class="pagination-link is-small is-current">1</a></li>
+			} else {
+				<li>
+					<a
+						class="pagination-link is-small"
+						hx-get={ fmt.Sprintf("%s?limit=%d&offset=0&%s", baseURL, limit, filterQuery) }
+						hx-push-url="true"
+						hx-target="#main-content"
+						hx-swap="innerHTML"
+					>1</a>
+				</li>
+			}
+			// Ellipsis if needed
+			if currentPage > 3 {
+				<li><span class="pagination-ellipsis">…</span></li>
+			}
+			// Middle pages
+			for page := max(2, currentPage-1); page <= min(totalPages-1, currentPage+1); page++ {
+				if page > 1 && page < totalPages {
+					if page == currentPage {
+						<li><a class="pagination-link is-small is-current">{ page }</a></li>
+					} else {
+						<li>
+							<a
+								class="pagination-link is-small"
+								hx-get={ fmt.Sprintf("%s?limit=%d&offset=%d&%s", baseURL, limit, (page-1)*limit, filterQuery) }
+								hx-push-url="true"
+								hx-target="#main-content"
+								hx-swap="innerHTML"
+							>{ page }</a>
+						</li>
+					}
+				}
+			}
+			// Ellipsis if needed
+			if currentPage < totalPages-2 {
+				<li><span class="pagination-ellipsis">…</span></li>
+			}
+			// Last page (if more than 1 page)
+			if totalPages > 1 {
+				if currentPage == totalPages {
+					<li><a class="pagination-link is-small is-current">{ totalPages }</a></li>
+				} else {
+					<li>
+						<a
+							class="pagination-link is-small"
+							hx-get={ fmt.Sprintf("%s?limit=%d&offset=%d&%s", baseURL, limit, (totalPages-1)*limit, filterQuery) }
+							hx-push-url="true"
+							hx-target="#main-content"
+							hx-swap="innerHTML"
+						>{ totalPages }</a>
+					</li>
+				}
+			}
+		</ul>
+		<div class="field has-addons ml-4">
+			<div class="control">
+				<span class="button is-static is-small">Go to</span>
+			</div>
+			<div class="control">
+				<input
+					class="input is-small"
+					type="number"
+					min="1"
+					max={ totalPages }
+					value={ currentPage }
+					style="width: 70px;"
+					hx-get={ baseURL }
+					hx-push-url="true"
+					hx-target="#main-content"
+					hx-swap="innerHTML"
+					hx-trigger="change"
+					hx-include="[name='limit']"
+					name="page"
+					placeholder="Page"
+				/>
+			</div>
+			<div class="control">
+				<span class="button is-static is-small">/ { totalPages }</span>
+			</div>
+		</div>
+	</nav>
+}
