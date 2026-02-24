@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/s-588/tms/config"
-	"github.com/s-588/tms/db/generated"
+	"github.com/s-588/tms/internal/config"
+	"github.com/s-588/tms/internal/db/generated"
 )
 
 type DB struct {
@@ -25,6 +25,7 @@ func New(ctx context.Context, cfg config.DBConfig) (DB, error) {
 	return DB{
 		queries: quieries,
 		cfg:     cfg,
+		pool:    pool,
 	}, nil
 }
 

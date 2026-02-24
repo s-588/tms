@@ -3,148 +3,183 @@ package db
 import (
 	"context"
 
-	"github.com/s-588/tms/db/generated"
-	"github.com/s-588/tms/models"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db/generated"
 	"github.com/shopspring/decimal"
 )
 
-func (db DB) CreateOrderWrapper(ctx context.Context, distance, weight int, totalPrice, status string) (models.Order, error) {
-	totalPriceDec, err := decimal.NewFromString(totalPrice)
-	if err != nil {
-		return models.Order{}, err
-	}
-
+// TODO: create struct for args
+func (db DB) CreateOrder(ctx context.Context,
+	clientID int32,
+	transportID int32,
+	employeeID int32,
+	grade uint8,
+	distance int32,
+	weight int32,
+	totalPrice decimal.Decimal,
+	priceID int32,
+	status models.OrderStatus,
+	nodeIDStart, nodeIDEnd int32,
+) (models.Order, error) {
 	arg := generated.CreateOrderParams{
-		Distance:   int32(distance),
-		Weight:     int32(weight),
-		TotalPrice: totalPriceDec,
-		Status:     status,
+		ClientID:    clientID,
+		TransportID: transportID,
+		EmployeeID:  employeeID,
+		Grade:       int16(grade),
+		Distance:    distance,
+		Weight:      weight,
+		TotalPrice:  totalPrice,
+		PriceID:     priceID,
+		Status:      generated.OrderStatus(status),
+		NodeIDStart: nodeIDStart,
+		NodeIDEnd:   nodeIDEnd,
 	}
-
 	genOrder, err := db.queries.CreateOrder(ctx, arg)
 	if err != nil {
 		return models.Order{}, err
 	}
-
 	return convertGeneratedOrderToModel(genOrder), nil
 }
 
-func (db DB) DeleteOrderWrapper(ctx context.Context, orderID int) error {
-	return db.queries.DeleteOrder(ctx, int32(orderID))
-}
-
-func (db DB) DeleteOrderTransportAssignmentsWrapper(ctx context.Context, orderID int) error {
-	return db.queries.DeleteOrderTransportAssignments(ctx, int32(orderID))
-}
-
-func (db DB) GetOrderByIDWrapper(ctx context.Context, orderID int) (models.Order, error) {
-	genOrder, err := db.queries.GetOrderByorder_id(ctx, int32(orderID))
+func (db DB) GetOrderByID(ctx context.Context, orderID int) (models.Order, error) {
+	genOrder, err := db.queries.GetOrder(ctx, int32(orderID))
 	if err != nil {
 		return models.Order{}, err
 	}
-
 	return convertGeneratedOrderToModel(genOrder), nil
 }
 
-func (db DB) GetOrdersPaginatedWrapper(ctx context.Context, limit, offset int) ([]models.Order, int64, error) {
-	arg := generated.GetOrderPaginatedParams{
-		Limit:  int32(limit),
-		Offset: int32(offset),
+func (db DB) GetOrders(ctx context.Context, limit, offset int, filter models.OrderFilter) ([]models.Order, int64, error) {
+	arg := generated.GetOrdersParams{
+		Limit:             int32(limit),
+		Offset:            int32(offset),
+		StatusFilter:      ToNullOrderStatus(filter.Status),
+		TotalPriceMin:     ToPgTypeNumeric(filter.TotalPriceMin),
+		TotalPriceMax:     ToPgTypeNumeric(filter.TotalPriceMax),
+		DistanceMin:       ToInt32Ptr(filter.DistanceMin),
+		DistanceMax:       ToInt32Ptr(filter.DistanceMax),
+		WeightMin:         ToInt32Ptr(filter.WeightMin),
+		WeightMax:         ToInt32Ptr(filter.WeightMax),
+		ClientIDFilter:    ToInt32Ptr(filter.ClientID),
+		TransportIDFilter: ToInt32Ptr(filter.TransportID),
+		EmployeeIDFilter:  ToInt32Ptr(filter.EmployeeID),
+		PriceIDFilter:     ToInt32Ptr(filter.PriceID),
+		GradeMin:          ToInt16PtrFromUint8(filter.GradeMin),
+		GradeMax:          ToInt16PtrFromUint8(filter.GradeMax),
+		CreatedFrom:       ToPgTypeTimestamptz(filter.CreatedFrom),
+		CreatedTo:         ToPgTypeTimestamptz(filter.CreatedTo),
+		UpdatedFrom:       ToPgTypeTimestamptz(filter.UpdatedFrom),
+		UpdatedTo:         ToPgTypeTimestamptz(filter.UpdatedTo),
+		SortOrder:         ToStringPtr(filter.SortOrder),
+		SortBy:            ToStringPtr(filter.SortBy),
 	}
-
-	rows, err := db.queries.GetOrderPaginated(ctx, arg)
+	rows, err := db.queries.GetOrders(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
-
 	var orders []models.Order
 	var totalCount int64
 	for _, row := range rows {
 		totalCount = row.TotalCount
-		order := models.Order{
-			OrderID:    row.OrderID,
-			Distance:   row.Distance,
-			Weight:     row.Weight,
-			TotalPrice: row.TotalPrice.String(),
-			Status:     row.Status,
-			CreatedAt:  row.CreatedAt.Time,
-			UpdatedAt:  row.UpdatedAt.Time,
-			DeletedAt:  row.DeletedAt.Time,
-		}
-		orders = append(orders, order)
+		orders = append(orders, convertGeneratedOrderRowToModel(row))
 	}
-
 	return orders, totalCount, nil
 }
 
-func (db DB) GetOrderTransportsWrapper(ctx context.Context, orderID, limit, offset int) ([]models.Transport, int64, error) {
-	arg := generated.GetOrderTransportsParams{
-		OrderID: int32(orderID),
-		Limit:   int32(limit),
-		Offset:  int32(offset),
-	}
-
-	rows, err := db.queries.GetOrderTransports(ctx, arg)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var transports []models.Transport
-	var totalCount int64
-	for _, row := range rows {
-		totalCount = row.TotalCount
-		transport := models.Transport{
-			TransportID:     row.TransportID,
-			EmployeeID:      row.EmployeeID,
-			Model:           row.Model,
-			LicensePlate:    row.LicensePlate,
-			PayloadCapacity: row.PayloadCapacity,
-			FuelID:          row.FuelID,
-			FuelConsumption: row.FuelConsumption,
-			CreatedAt:       row.CreatedAt.Time,
-			UpdatedAt:       row.UpdatedAt.Time,
-			DeletedAt:       row.DeletedAt.Time,
-		}
-		transports = append(transports, transport)
-	}
-
-	return transports, totalCount, nil
-}
-
-func (db DB) InsertOrderTransportAssignmentsWrapper(ctx context.Context, orderID int, transportIDs []int) error {
-	arg := generated.InsertOrderTransportAssignmentsParams{
-		OrderID: int32(orderID),
-		Column2: convertIntSliceToInt32(transportIDs),
-	}
-
-	return db.queries.InsertOrderTransportAssignments(ctx, arg)
-}
-
-func (db DB) UpdateOrderWrapper(ctx context.Context, orderID, distance, weight int, totalPrice, status string) error {
-	totalPriceDec, err := decimal.NewFromString(totalPrice)
-	if err != nil {
-		return err
-	}
-
+func (db DB) UpdateOrder(ctx context.Context,
+	orderID int32,
+	clientID models.Optional[int32],
+	transportID models.Optional[int32],
+	employeeID models.Optional[int32],
+	grade models.Optional[uint8],
+	distance models.Optional[int32],
+	weight models.Optional[int32],
+	totalPrice models.Optional[decimal.Decimal],
+	priceID models.Optional[int32],
+	status models.Optional[models.OrderStatus],
+	nodeIDStart, nodeIDEnd models.Optional[int32],
+) error {
 	arg := generated.UpdateOrderParams{
-		OrderID:    int32(orderID),
-		Distance:   int32(distance),
-		Weight:     int32(weight),
-		TotalPrice: totalPriceDec,
-		Status:     status,
+		OrderID:     orderID,
+		ClientID:    ToInt32Ptr(clientID),
+		TransportID: ToInt32Ptr(transportID),
+		EmployeeID:  ToInt32Ptr(employeeID),
+		Grade:       ToInt16PtrFromUint8(grade),
+		Distance:    ToInt32Ptr(distance),
+		Weight:      ToInt32Ptr(weight),
+		TotalPrice:  ToPgTypeNumeric(totalPrice),
+		PriceID:     ToInt32Ptr(priceID),
+		Status:      ToNullOrderStatus(status),
+		NodeIDStart: ToInt32Ptr(nodeIDStart),
+		NodeIDEnd:   ToInt32Ptr(nodeIDEnd),
 	}
-
 	return db.queries.UpdateOrder(ctx, arg)
 }
-func convertGeneratedOrderToModel(genOrder generated.Order) models.Order {
+
+func (db DB) SoftDeleteOrder(ctx context.Context, orderID int) error {
+	return db.queries.SoftDeleteOrder(ctx, int32(orderID))
+}
+
+func (db DB) HardDeleteOrder(ctx context.Context, orderID int) error {
+	return db.queries.HardDeleteOrder(ctx, int32(orderID))
+}
+
+func (db DB) RestoreOrder(ctx context.Context, orderID int) error {
+	return db.queries.RestoreOrder(ctx, int32(orderID))
+}
+
+func (db DB) BulkSoftDeleteOrders(ctx context.Context, orderIDs []int) error {
+	return db.queries.BulkSoftDeleteOrders(ctx, convertIntSliceToInt32(orderIDs))
+}
+
+func (db DB) BulkHardDeleteOrders(ctx context.Context, orderIDs []int) error {
+	return db.queries.BulkHardDeleteOrders(ctx, convertIntSliceToInt32(orderIDs))
+}
+
+func (db DB) UpdateOrderStatus(ctx context.Context, orderID int, status models.OrderStatus) error {
+	return db.queries.UpdateOrderStatus(ctx, generated.UpdateOrderStatusParams{
+		OrderID: int32(orderID),
+		Status:  generated.OrderStatus(status),
+	})
+}
+
+// conversion helpers
+func convertGeneratedOrderToModel(o generated.Order) models.Order {
 	return models.Order{
-		OrderID:    genOrder.OrderID,
-		Distance:   genOrder.Distance,
-		Weight:     genOrder.Weight,
-		TotalPrice: genOrder.TotalPrice.String(),
-		Status:     genOrder.Status,
-		CreatedAt:  genOrder.CreatedAt.Time,
-		UpdatedAt:  genOrder.UpdatedAt.Time,
-		DeletedAt:  genOrder.DeletedAt.Time,
+		OrderID:     o.OrderID,
+		ClientID:    o.ClientID,
+		TransportID: o.TransportID,
+		EmployeeID:  o.EmployeeID,
+		Grade:       uint8(o.Grade),
+		Distance:    o.Distance,
+		Weight:      o.Weight,
+		TotalPrice:  o.TotalPrice,
+		PriceID:     o.PriceID,
+		Status:      models.OrderStatus(o.Status),
+		NodeIDStart: o.NodeIDStart,
+		NodeIDEnd:   o.NodeIDEnd,
+		CreatedAt:   fromPgTimestamptz(o.CreatedAt),
+		UpdatedAt:   fromPgTimestamptz(o.UpdatedAt),
+		DeletedAt:   fromPgTimestamptz(o.DeletedAt),
+	}
+}
+
+func convertGeneratedOrderRowToModel(row generated.GetOrdersRow) models.Order {
+	return models.Order{
+		OrderID:     row.OrderID,
+		ClientID:    row.ClientID,
+		TransportID: row.TransportID,
+		EmployeeID:  row.EmployeeID,
+		Grade:       uint8(row.Grade),
+		Distance:    row.Distance,
+		Weight:      row.Weight,
+		TotalPrice:  row.TotalPrice,
+		PriceID:     row.PriceID,
+		Status:      models.OrderStatus(row.Status),
+		NodeIDStart: row.NodeIDStart,
+		NodeIDEnd:   row.NodeIDEnd,
+		CreatedAt:   fromPgTimestamptz(row.CreatedAt),
+		UpdatedAt:   fromPgTimestamptz(row.UpdatedAt),
+		DeletedAt:   fromPgTimestamptz(row.DeletedAt),
 	}
 }
