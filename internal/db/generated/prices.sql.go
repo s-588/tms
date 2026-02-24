@@ -7,37 +7,50 @@ package generated
 
 import (
 	"context"
-	"time"
 
-	"github.com/shopspring/decimal"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bulkHardDeletePrices = `-- name: BulkHardDeletePrices :exec
+DELETE FROM prices WHERE price_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkHardDeletePrices(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkHardDeletePrices, ids)
+	return err
+}
+
+const bulkSoftDeletePrices = `-- name: BulkSoftDeletePrices :exec
+UPDATE prices SET deleted_at = NOW() WHERE price_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkSoftDeletePrices(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkSoftDeletePrices, ids)
+	return err
+}
+
 const createPrice = `-- name: CreatePrice :one
-insert into prices(cargo_type, cost, weight, distance)
-values ($1, $2, $3, $4)
-returning price_id, cargo_type, cost, weight, distance, created_at, updated_at, deleted_at
+INSERT INTO prices (cargo_type, weight, distance)
+VALUES (
+    $1::text,
+    $2::int,
+    $3::int
+)
+RETURNING price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at
 `
 
 type CreatePriceParams struct {
 	CargoType string
-	Cost      decimal.Decimal
 	Weight    int32
 	Distance  int32
 }
 
-// Create new price
 func (q *Queries) CreatePrice(ctx context.Context, arg CreatePriceParams) (Price, error) {
-	row := q.db.QueryRow(ctx, createPrice,
-		arg.CargoType,
-		arg.Cost,
-		arg.Weight,
-		arg.Distance,
-	)
+	row := q.db.QueryRow(ctx, createPrice, arg.CargoType, arg.Weight, arg.Distance)
 	var i Price
 	err := row.Scan(
 		&i.PriceID,
 		&i.CargoType,
-		&i.Cost,
 		&i.Weight,
 		&i.Distance,
 		&i.CreatedAt,
@@ -47,28 +60,17 @@ func (q *Queries) CreatePrice(ctx context.Context, arg CreatePriceParams) (Price
 	return i, err
 }
 
-const deletePrice = `-- name: DeletePrice :exec
-delete from prices where price_id = $1
+const getPrice = `-- name: GetPrice :one
+SELECT price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at FROM prices
+WHERE price_id = $1 AND deleted_at IS NULL
 `
 
-// Delete price
-func (q *Queries) DeletePrice(ctx context.Context, priceID int32) error {
-	_, err := q.db.Exec(ctx, deletePrice, priceID)
-	return err
-}
-
-const getPriceByprice_id = `-- name: GetPriceByprice_id :one
-select price_id, cargo_type, cost, weight, distance, created_at, updated_at, deleted_at from prices p where price_id = $1 and p.deleted_at is null
-`
-
-// Get single price by price_id
-func (q *Queries) GetPriceByprice_id(ctx context.Context, priceID int32) (Price, error) {
-	row := q.db.QueryRow(ctx, getPriceByprice_id, priceID)
+func (q *Queries) GetPrice(ctx context.Context, priceID int32) (Price, error) {
+	row := q.db.QueryRow(ctx, getPrice, priceID)
 	var i Price
 	err := row.Scan(
 		&i.PriceID,
 		&i.CargoType,
-		&i.Cost,
 		&i.Weight,
 		&i.Distance,
 		&i.CreatedAt,
@@ -78,44 +80,126 @@ func (q *Queries) GetPriceByprice_id(ctx context.Context, priceID int32) (Price,
 	return i, err
 }
 
-const getPricesPaginated = `-- name: GetPricesPaginated :many
-select price_id, cargo_type, cost, weight, distance, created_at, updated_at, deleted_at,count(*) as total_count   from prices p
-where p.deleted_at is null
-order by price_id
-limit $1 offset $2
+const getPriceByUnique = `-- name: GetPriceByUnique :one
+SELECT price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at FROM prices
+WHERE cargo_type = $1::text
+  AND weight = $2::int
+  AND distance = $3::int
+  AND deleted_at IS NULL
 `
 
-type GetPricesPaginatedParams struct {
-	Limit  int32
-	Offset int32
+type GetPriceByUniqueParams struct {
+	CargoType string
+	Weight    int32
+	Distance  int32
 }
 
-type GetPricesPaginatedRow struct {
+func (q *Queries) GetPriceByUnique(ctx context.Context, arg GetPriceByUniqueParams) (Price, error) {
+	row := q.db.QueryRow(ctx, getPriceByUnique, arg.CargoType, arg.Weight, arg.Distance)
+	var i Price
+	err := row.Scan(
+		&i.PriceID,
+		&i.CargoType,
+		&i.Weight,
+		&i.Distance,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getPrices = `-- name: GetPrices :many
+SELECT price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at,
+       count(*) OVER() AS total_count
+FROM prices
+WHERE deleted_at IS NULL
+  AND ($1::text IS NULL OR cargo_type ILIKE '%' || $1::text || '%')
+  AND ($2::int IS NULL OR weight >= $2::int)
+  AND ($3::int IS NULL OR weight <= $3::int)
+  AND ($4::int IS NULL OR distance >= $4::int)
+  AND ($5::int IS NULL OR distance <= $5::int)
+  AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
+  AND ($7::timestamptz IS NULL OR created_at <= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR updated_at >= $8::timestamptz)
+  AND ($9::timestamptz IS NULL OR updated_at <= $9::timestamptz)
+ORDER BY
+    CASE WHEN $10::text = 'ASC' THEN
+        CASE $11::text
+            WHEN 'price_id' THEN price_id::text
+            WHEN 'cargo_type' THEN cargo_type
+            WHEN 'weight' THEN weight::text
+            WHEN 'distance' THEN distance::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END ASC,
+    CASE WHEN $10::text = 'DESC' THEN
+        CASE $11::text
+            WHEN 'price_id' THEN price_id::text
+            WHEN 'cargo_type' THEN cargo_type
+            WHEN 'weight' THEN weight::text
+            WHEN 'distance' THEN distance::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END DESC
+LIMIT $13 OFFSET $12
+`
+
+type GetPricesParams struct {
+	CargoTypeFilter *string
+	WeightMin       *int32
+	WeightMax       *int32
+	DistanceMin     *int32
+	DistanceMax     *int32
+	CreatedFrom     pgtype.Timestamptz
+	CreatedTo       pgtype.Timestamptz
+	UpdatedFrom     pgtype.Timestamptz
+	UpdatedTo       pgtype.Timestamptz
+	SortOrder       *string
+	SortBy          *string
+	Offset          int32
+	Limit           int32
+}
+
+type GetPricesRow struct {
 	PriceID    int32
 	CargoType  string
-	Cost       decimal.Decimal
 	Weight     int32
 	Distance   int32
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
+	CreatedAt  pgtype.Timestamptz
+	UpdatedAt  pgtype.Timestamptz
+	DeletedAt  pgtype.Timestamptz
 	TotalCount int64
 }
 
-// Get paginated prices list
-func (q *Queries) GetPricesPaginated(ctx context.Context, arg GetPricesPaginatedParams) ([]GetPricesPaginatedRow, error) {
-	rows, err := q.db.Query(ctx, getPricesPaginated, arg.Limit, arg.Offset)
+func (q *Queries) GetPrices(ctx context.Context, arg GetPricesParams) ([]GetPricesRow, error) {
+	rows, err := q.db.Query(ctx, getPrices,
+		arg.CargoTypeFilter,
+		arg.WeightMin,
+		arg.WeightMax,
+		arg.DistanceMin,
+		arg.DistanceMax,
+		arg.CreatedFrom,
+		arg.CreatedTo,
+		arg.UpdatedFrom,
+		arg.UpdatedTo,
+		arg.SortOrder,
+		arg.SortBy,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetPricesPaginatedRow
+	var items []GetPricesRow
 	for rows.Next() {
-		var i GetPricesPaginatedRow
+		var i GetPricesRow
 		if err := rows.Scan(
 			&i.PriceID,
 			&i.CargoType,
-			&i.Cost,
 			&i.Weight,
 			&i.Distance,
 			&i.CreatedAt,
@@ -133,32 +217,56 @@ func (q *Queries) GetPricesPaginated(ctx context.Context, arg GetPricesPaginated
 	return items, nil
 }
 
+const hardDeletePrice = `-- name: HardDeletePrice :exec
+DELETE FROM prices WHERE price_id = $1
+`
+
+func (q *Queries) HardDeletePrice(ctx context.Context, priceID int32) error {
+	_, err := q.db.Exec(ctx, hardDeletePrice, priceID)
+	return err
+}
+
+const restorePrice = `-- name: RestorePrice :exec
+UPDATE prices SET deleted_at = NULL WHERE price_id = $1
+`
+
+func (q *Queries) RestorePrice(ctx context.Context, priceID int32) error {
+	_, err := q.db.Exec(ctx, restorePrice, priceID)
+	return err
+}
+
+const softDeletePrice = `-- name: SoftDeletePrice :exec
+UPDATE prices SET deleted_at = NOW() WHERE price_id = $1
+`
+
+func (q *Queries) SoftDeletePrice(ctx context.Context, priceID int32) error {
+	_, err := q.db.Exec(ctx, softDeletePrice, priceID)
+	return err
+}
+
 const updatePrice = `-- name: UpdatePrice :exec
-update prices
-set
-cargo_type = coalesce($2, cargo_type),
-cost = coalesce($3 ,cost),
-weight = coalesce($4, weight),
-distance = coalesce($5 , distance)
-where price_id = $1
+UPDATE prices
+SET
+    cargo_type = COALESCE($1::text, cargo_type),
+    weight = COALESCE($2::int, weight),
+    distance = COALESCE($3::int, distance),
+    updated_at = NOW()
+WHERE price_id = $4
 `
 
 type UpdatePriceParams struct {
+	CargoType *string
+	Weight    *int32
+	Distance  *int32
 	PriceID   int32
-	CargoType string
-	Cost      decimal.Decimal
-	Weight    int32
-	Distance  int32
 }
 
-// Update price fields
 func (q *Queries) UpdatePrice(ctx context.Context, arg UpdatePriceParams) error {
 	_, err := q.db.Exec(ctx, updatePrice,
-		arg.PriceID,
 		arg.CargoType,
-		arg.Cost,
 		arg.Weight,
 		arg.Distance,
+		arg.PriceID,
 	)
 	return err
 }

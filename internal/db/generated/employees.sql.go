@@ -7,48 +7,75 @@ package generated
 
 import (
 	"context"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
-const createEmployee = `-- name: CreateEmployee :one
-insert into employees(name) values ($1) returning employee_id, name, created_at, updated_at, deleted_at
+const bulkHardDeleteEmployees = `-- name: BulkHardDeleteEmployees :exec
+DELETE FROM employees WHERE employee_id = ANY($1::int[])
 `
 
-// Create new employee
-func (q *Queries) CreateEmployee(ctx context.Context, name string) (Employee, error) {
-	row := q.db.QueryRow(ctx, createEmployee, name)
-	var i Employee
-	err := row.Scan(
-		&i.EmployeeID,
-		&i.Name,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
-}
-
-const deleteEmployee = `-- name: DeleteEmployee :exec
-delete from employees where employee_id = $1
-`
-
-// Delete employee
-func (q *Queries) DeleteEmployee(ctx context.Context, employeeID int32) error {
-	_, err := q.db.Exec(ctx, deleteEmployee, employeeID)
+func (q *Queries) BulkHardDeleteEmployees(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkHardDeleteEmployees, ids)
 	return err
 }
 
-const getEmployeeByemployee_id = `-- name: GetEmployeeByemployee_id :one
-select employee_id, name, created_at, updated_at, deleted_at from employees e where employee_id = $1 and e.deleted_at is null
+const bulkSoftDeleteEmployees = `-- name: BulkSoftDeleteEmployees :exec
+UPDATE employees SET deleted_at = NOW() WHERE employee_id = ANY($1::int[])
 `
 
-// Get single employee by employee_id
-func (q *Queries) GetEmployeeByemployee_id(ctx context.Context, employeeID int32) (Employee, error) {
-	row := q.db.QueryRow(ctx, getEmployeeByemployee_id, employeeID)
+func (q *Queries) BulkSoftDeleteEmployees(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkSoftDeleteEmployees, ids)
+	return err
+}
+
+const createEmployee = `-- name: CreateEmployee :one
+INSERT INTO employees (
+    name, status, job_title, hire_date, salary,
+    license_issued, license_expiration
+) VALUES (
+    $1::text,
+    $2::employee_status,
+    $3::text,
+    $4::date,
+    $5::numeric,
+    $6::date,
+    $7::date
+)
+RETURNING employee_id, name, status, job_title, hire_date, salary, license_issued, license_expiration, created_at, updated_at, deleted_at
+`
+
+type CreateEmployeeParams struct {
+	Name              string
+	Status            EmployeeStatus
+	JobTitle          string
+	HireDate          pgtype.Date
+	Salary            decimal.Decimal
+	LicenseIssued     pgtype.Date
+	LicenseExpiration pgtype.Date
+}
+
+func (q *Queries) CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error) {
+	row := q.db.QueryRow(ctx, createEmployee,
+		arg.Name,
+		arg.Status,
+		arg.JobTitle,
+		arg.HireDate,
+		arg.Salary,
+		arg.LicenseIssued,
+		arg.LicenseExpiration,
+	)
 	var i Employee
 	err := row.Scan(
 		&i.EmployeeID,
 		&i.Name,
+		&i.Status,
+		&i.JobTitle,
+		&i.HireDate,
+		&i.Salary,
+		&i.LicenseIssued,
+		&i.LicenseExpiration,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -56,40 +83,133 @@ func (q *Queries) GetEmployeeByemployee_id(ctx context.Context, employeeID int32
 	return i, err
 }
 
-const getEmployeesPaginated = `-- name: GetEmployeesPaginated :many
-select employee_id, name, created_at, updated_at, deleted_at,count(*) as total_count   from employees e
-where e.deleted_at is null
-order by employee_id
-limit $1 offset $2
+const getEmployee = `-- name: GetEmployee :one
+SELECT employee_id, name, status, job_title, hire_date, salary, license_issued, license_expiration, created_at, updated_at, deleted_at FROM employees
+WHERE employee_id = $1 AND deleted_at IS NULL
 `
 
-type GetEmployeesPaginatedParams struct {
-	Limit  int32
-	Offset int32
+func (q *Queries) GetEmployee(ctx context.Context, employeeID int32) (Employee, error) {
+	row := q.db.QueryRow(ctx, getEmployee, employeeID)
+	var i Employee
+	err := row.Scan(
+		&i.EmployeeID,
+		&i.Name,
+		&i.Status,
+		&i.JobTitle,
+		&i.HireDate,
+		&i.Salary,
+		&i.LicenseIssued,
+		&i.LicenseExpiration,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }
 
-type GetEmployeesPaginatedRow struct {
-	EmployeeID int32
-	Name       string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
-	TotalCount int64
+const getEmployees = `-- name: GetEmployees :many
+SELECT employee_id, name, status, job_title, hire_date, salary, license_issued, license_expiration, created_at, updated_at, deleted_at,
+       count(*) OVER() AS total_count
+FROM employees
+WHERE deleted_at IS NULL
+  AND ($1::text IS NULL OR name ILIKE '%' || $1::text || '%')
+  AND ($2::text IS NULL OR job_title ILIKE '%' || $2::text || '%')
+  AND ($3::employee_status IS NULL OR status = $3::employee_status)
+  AND ($4::numeric IS NULL OR salary >= $4::numeric)
+  AND ($5::numeric IS NULL OR salary <= $5::numeric)
+  AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
+  AND ($7::timestamptz IS NULL OR created_at <= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR updated_at >= $8::timestamptz)
+  AND ($9::timestamptz IS NULL OR updated_at <= $9::timestamptz)
+ORDER BY
+    CASE WHEN $10::text = 'ASC' THEN
+        CASE $11::text
+            WHEN 'name' THEN name
+            WHEN 'job_title' THEN job_title
+            WHEN 'status' THEN status::text
+            WHEN 'salary' THEN salary::text
+            WHEN 'hire_date' THEN hire_date::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END ASC,
+    CASE WHEN $10::text = 'DESC' THEN
+        CASE $11::text
+            WHEN 'name' THEN name
+            WHEN 'job_title' THEN job_title
+            WHEN 'status' THEN status::text
+            WHEN 'salary' THEN salary::text
+            WHEN 'hire_date' THEN hire_date::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END DESC
+LIMIT $13 OFFSET $12
+`
+
+type GetEmployeesParams struct {
+	NameFilter     *string
+	JobTitleFilter *string
+	StatusFilter   NullEmployeeStatus
+	SalaryMin      pgtype.Numeric
+	SalaryMax      pgtype.Numeric
+	CreatedFrom    pgtype.Timestamptz
+	CreatedTo      pgtype.Timestamptz
+	UpdatedFrom    pgtype.Timestamptz
+	UpdatedTo      pgtype.Timestamptz
+	SortOrder      *string
+	SortBy         *string
+	Offset         int32
+	Limit          int32
 }
 
-// Get paginated employees list
-func (q *Queries) GetEmployeesPaginated(ctx context.Context, arg GetEmployeesPaginatedParams) ([]GetEmployeesPaginatedRow, error) {
-	rows, err := q.db.Query(ctx, getEmployeesPaginated, arg.Limit, arg.Offset)
+type GetEmployeesRow struct {
+	EmployeeID        int32
+	Name              string
+	Status            EmployeeStatus
+	JobTitle          EmployeeJobTitle
+	HireDate          pgtype.Date
+	Salary            decimal.Decimal
+	LicenseIssued     pgtype.Date
+	LicenseExpiration pgtype.Date
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	DeletedAt         pgtype.Timestamptz
+	TotalCount        int64
+}
+
+func (q *Queries) GetEmployees(ctx context.Context, arg GetEmployeesParams) ([]GetEmployeesRow, error) {
+	rows, err := q.db.Query(ctx, getEmployees,
+		arg.NameFilter,
+		arg.JobTitleFilter,
+		arg.StatusFilter,
+		arg.SalaryMin,
+		arg.SalaryMax,
+		arg.CreatedFrom,
+		arg.CreatedTo,
+		arg.UpdatedFrom,
+		arg.UpdatedTo,
+		arg.SortOrder,
+		arg.SortBy,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetEmployeesPaginatedRow
+	var items []GetEmployeesRow
 	for rows.Next() {
-		var i GetEmployeesPaginatedRow
+		var i GetEmployeesRow
 		if err := rows.Scan(
 			&i.EmployeeID,
 			&i.Name,
+			&i.Status,
+			&i.JobTitle,
+			&i.HireDate,
+			&i.Salary,
+			&i.LicenseIssued,
+			&i.LicenseExpiration,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -105,17 +225,68 @@ func (q *Queries) GetEmployeesPaginated(ctx context.Context, arg GetEmployeesPag
 	return items, nil
 }
 
+const hardDeleteEmployee = `-- name: HardDeleteEmployee :exec
+DELETE FROM employees WHERE employee_id = $1
+`
+
+func (q *Queries) HardDeleteEmployee(ctx context.Context, employeeID int32) error {
+	_, err := q.db.Exec(ctx, hardDeleteEmployee, employeeID)
+	return err
+}
+
+const restoreEmployee = `-- name: RestoreEmployee :exec
+UPDATE employees SET deleted_at = NULL WHERE employee_id = $1
+`
+
+func (q *Queries) RestoreEmployee(ctx context.Context, employeeID int32) error {
+	_, err := q.db.Exec(ctx, restoreEmployee, employeeID)
+	return err
+}
+
+const softDeleteEmployee = `-- name: SoftDeleteEmployee :exec
+UPDATE employees SET deleted_at = NOW() WHERE employee_id = $1
+`
+
+func (q *Queries) SoftDeleteEmployee(ctx context.Context, employeeID int32) error {
+	_, err := q.db.Exec(ctx, softDeleteEmployee, employeeID)
+	return err
+}
+
 const updateEmployee = `-- name: UpdateEmployee :exec
-update employees set name = $2 where employee_id = $1
+UPDATE employees
+SET
+    name = COALESCE($1::text, name),
+    status = COALESCE($2::employee_status, status),
+    job_title = COALESCE($3::text, job_title),
+    hire_date = COALESCE($4::date, hire_date),
+    salary = COALESCE($5::numeric, salary),
+    license_issued = COALESCE($6::date, license_issued),
+    license_expiration = COALESCE($7::date, license_expiration),
+    updated_at = NOW()
+WHERE employee_id = $8
 `
 
 type UpdateEmployeeParams struct {
-	EmployeeID int32
-	Name       string
+	Name              *string
+	Status            NullEmployeeStatus
+	JobTitle          *string
+	HireDate          pgtype.Date
+	Salary            pgtype.Numeric
+	LicenseIssued     pgtype.Date
+	LicenseExpiration pgtype.Date
+	EmployeeID        int32
 }
 
-// Update employee name
 func (q *Queries) UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) error {
-	_, err := q.db.Exec(ctx, updateEmployee, arg.EmployeeID, arg.Name)
+	_, err := q.db.Exec(ctx, updateEmployee,
+		arg.Name,
+		arg.Status,
+		arg.JobTitle,
+		arg.HireDate,
+		arg.Salary,
+		arg.LicenseIssued,
+		arg.LicenseExpiration,
+		arg.EmployeeID,
+	)
 	return err
 }

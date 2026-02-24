@@ -7,32 +7,50 @@ package generated
 
 import (
 	"context"
-	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
 
+const bulkHardDeleteClients = `-- name: BulkHardDeleteClients :exec
+DELETE FROM clients WHERE client_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkHardDeleteClients(ctx context.Context, dollar_1 []int32) error {
+	_, err := q.db.Exec(ctx, bulkHardDeleteClients, dollar_1)
+	return err
+}
+
+const bulkSoftDeleteClients = `-- name: BulkSoftDeleteClients :exec
+UPDATE clients SET deleted_at = NOW() WHERE client_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkSoftDeleteClients(ctx context.Context, dollar_1 []int32) error {
+	_, err := q.db.Exec(ctx, bulkSoftDeleteClients, dollar_1)
+	return err
+}
+
 const createClient = `-- name: CreateClient :one
-INSERT INTO clients (name, email, phone, email_verified)
-VALUES ($1, $2, $3, $4)
-RETURNING client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at
+INSERT INTO clients (
+    name,
+    email,
+    phone
+) VALUES (
+    $1::text,
+    $2::text,
+    $3::text
+)
+RETURNING client_id, name, email, email_verified, email_token, email_token_expiration, phone, score, created_at, updated_at, deleted_at
 `
 
 type CreateClientParams struct {
-	Name          string
-	Email         string
-	Phone         string
-	EmailVerified bool
+	Name  string
+	Email string
+	Phone string
 }
 
-// Create new client
 func (q *Queries) CreateClient(ctx context.Context, arg CreateClientParams) (Client, error) {
-	row := q.db.QueryRow(ctx, createClient,
-		arg.Name,
-		arg.Email,
-		arg.Phone,
-		arg.EmailVerified,
-	)
+	row := q.db.QueryRow(ctx, createClient, arg.Name, arg.Email, arg.Phone)
 	var i Client
 	err := row.Scan(
 		&i.ClientID,
@@ -42,6 +60,7 @@ func (q *Queries) CreateClient(ctx context.Context, arg CreateClientParams) (Cli
 		&i.EmailToken,
 		&i.EmailTokenExpiration,
 		&i.Phone,
+		&i.Score,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -49,34 +68,13 @@ func (q *Queries) CreateClient(ctx context.Context, arg CreateClientParams) (Cli
 	return i, err
 }
 
-const deleteClient = `-- name: DeleteClient :exec
-delete from clients WHERE client_id = $1
+const getClient = `-- name: GetClient :one
+SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, score, created_at, updated_at, deleted_at FROM clients
+WHERE client_id = $1 AND deleted_at IS NULL
 `
 
-// Soft delete client (set deleted_at)
-func (q *Queries) DeleteClient(ctx context.Context, clientID int32) error {
-	_, err := q.db.Exec(ctx, deleteClient, clientID)
-	return err
-}
-
-const deleteClientOrderAssignments = `-- name: DeleteClientOrderAssignments :exec
-DELETE FROM clients_orders WHERE client_id = $1
-`
-
-// Assign/unassign client to orders (replace all connections)
-// First delete existing assignments
-func (q *Queries) DeleteClientOrderAssignments(ctx context.Context, clientID int32) error {
-	_, err := q.db.Exec(ctx, deleteClientOrderAssignments, clientID)
-	return err
-}
-
-const getClientByclient_id = `-- name: GetClientByclient_id :one
-SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at FROM clients WHERE client_id = $1 AND deleted_at IS NULL
-`
-
-// Get single client by client_id
-func (q *Queries) GetClientByclient_id(ctx context.Context, clientID int32) (Client, error) {
-	row := q.db.QueryRow(ctx, getClientByclient_id, clientID)
+func (q *Queries) GetClient(ctx context.Context, clientID int32) (Client, error) {
+	row := q.db.QueryRow(ctx, getClient, clientID)
 	var i Client
 	err := row.Scan(
 		&i.ClientID,
@@ -86,6 +84,31 @@ func (q *Queries) GetClientByclient_id(ctx context.Context, clientID int32) (Cli
 		&i.EmailToken,
 		&i.EmailTokenExpiration,
 		&i.Phone,
+		&i.Score,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getClientByEmail = `-- name: GetClientByEmail :one
+SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, score, created_at, updated_at, deleted_at FROM clients
+WHERE email = $1 AND deleted_at IS NULL
+`
+
+func (q *Queries) GetClientByEmail(ctx context.Context, email string) (Client, error) {
+	row := q.db.QueryRow(ctx, getClientByEmail, email)
+	var i Client
+	err := row.Scan(
+		&i.ClientID,
+		&i.Name,
+		&i.Email,
+		&i.EmailVerified,
+		&i.EmailToken,
+		&i.EmailTokenExpiration,
+		&i.Phone,
+		&i.Score,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -94,34 +117,41 @@ func (q *Queries) GetClientByclient_id(ctx context.Context, clientID int32) (Cli
 }
 
 const getClientOrders = `-- name: GetClientOrders :many
-SELECT o.order_id, o.distance, o.weight, o.total_price, o.status, o.created_at, o.updated_at, o.deleted_at,count(*) as total_count  FROM orders o
-JOIN clients_orders co ON o.order_id = co.order_id
-WHERE co.client_id = $1 and o.deleted_at is null
-ORDER BY co.client_id
-LIMIT $2 OFFSET $3
+SELECT o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at,
+       count(*) OVER() AS total_count
+FROM orders o
+WHERE o.client_id = $3 AND o.deleted_at IS NULL
+ORDER BY o.created_at DESC
+LIMIT $1 OFFSET $2
 `
 
 type GetClientOrdersParams struct {
-	ClientID int32
 	Limit    int32
 	Offset   int32
+	ClientID int32
 }
 
 type GetClientOrdersRow struct {
-	OrderID    int32
-	Distance   int32
-	Weight     int32
-	TotalPrice decimal.Decimal
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
-	TotalCount int64
+	OrderID     int32
+	ClientID    int32
+	TransportID int32
+	EmployeeID  int32
+	PriceID     int32
+	Grade       int16
+	Distance    int32
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	Status      OrderStatus
+	NodeIDStart *int32
+	NodeIDEnd   *int32
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	DeletedAt   pgtype.Timestamptz
+	TotalCount  int64
 }
 
-// Get client's orders
 func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams) ([]GetClientOrdersRow, error) {
-	rows, err := q.db.Query(ctx, getClientOrders, arg.ClientID, arg.Limit, arg.Offset)
+	rows, err := q.db.Query(ctx, getClientOrders, arg.Limit, arg.Offset, arg.ClientID)
 	if err != nil {
 		return nil, err
 	}
@@ -131,10 +161,17 @@ func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams
 		var i GetClientOrdersRow
 		if err := rows.Scan(
 			&i.OrderID,
+			&i.ClientID,
+			&i.TransportID,
+			&i.EmployeeID,
+			&i.PriceID,
+			&i.Grade,
 			&i.Distance,
 			&i.Weight,
 			&i.TotalPrice,
 			&i.Status,
+			&i.NodeIDStart,
+			&i.NodeIDEnd,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -150,42 +187,101 @@ func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams
 	return items, nil
 }
 
-const getClientsPaginated = `-- name: GetClientsPaginated :many
-SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, created_at, updated_at, deleted_at,count(*) as total_count FROM clients
+const getClients = `-- name: GetClients :many
+SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, score, created_at, updated_at, deleted_at,
+       (count(*) OVER())/20 AS total_count
+FROM clients
 WHERE deleted_at IS NULL
-ORDER BY client_id
-LIMIT $1 OFFSET $2
+  AND ($1::text IS NULL OR name ILIKE '%' || $1::text || '%')
+  AND ($2::text IS NULL OR email ILIKE '%' || $2::text || '%')
+  AND ($3::text IS NULL OR phone ILIKE '%' || $3::text || '%')
+  AND ($4::boolean IS NULL OR email_verified = $4::boolean)
+  AND ($5::smallint IS NULL OR score >= $5::smallint)
+  AND ($6::smallint IS NULL OR score <= $6::smallint)
+  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
+  AND ($8::timestamptz IS NULL OR created_at <= $8::timestamptz)
+  AND ($9::timestamptz IS NULL OR updated_at >= $9::timestamptz)
+  AND ($10::timestamptz IS NULL OR updated_at <= $10::timestamptz)
+ORDER BY
+    CASE WHEN $11::text = 'ASC' THEN
+        CASE $12::text
+            WHEN 'name' THEN name
+            WHEN 'email' THEN email
+            WHEN 'phone' THEN phone
+            WHEN 'email_verified' THEN email_verified::text
+            WHEN 'score' THEN score::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END ASC,
+    CASE WHEN $11::text = 'DESC' THEN
+        CASE $12::text
+            WHEN 'name' THEN name
+            WHEN 'email' THEN email
+            WHEN 'phone' THEN phone
+            WHEN 'email_verified' THEN email_verified::text
+            WHEN 'score' THEN score::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END DESC
+LIMIT 20 OFFSET 20*($13::integer-1)
 `
 
-type GetClientsPaginatedParams struct {
-	Limit  int32
-	Offset int32
+type GetClientsParams struct {
+	NameFilter          *string
+	EmailFilter         *string
+	PhoneFilter         *string
+	EmailVerifiedFilter *bool
+	ScoreMinFilter      *int16
+	ScoreMaxFilter      *int16
+	CreatedFromFilter   pgtype.Timestamptz
+	CreatedToFilter     pgtype.Timestamptz
+	UpdatedFromFilter   pgtype.Timestamptz
+	UpdatedToFilter     pgtype.Timestamptz
+	SortOrder           *string
+	SortBy              *string
+	Page                int32
 }
 
-type GetClientsPaginatedRow struct {
+type GetClientsRow struct {
 	ClientID             int32
 	Name                 string
 	Email                string
 	EmailVerified        bool
 	EmailToken           *string
-	EmailTokenExpiration time.Time
+	EmailTokenExpiration pgtype.Timestamptz
 	Phone                string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	DeletedAt            time.Time
-	TotalCount           int64
+	Score                int16
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	DeletedAt            pgtype.Timestamptz
+	TotalCount           int32
 }
 
-// Get paginated client list
-func (q *Queries) GetClientsPaginated(ctx context.Context, arg GetClientsPaginatedParams) ([]GetClientsPaginatedRow, error) {
-	rows, err := q.db.Query(ctx, getClientsPaginated, arg.Limit, arg.Offset)
+func (q *Queries) GetClients(ctx context.Context, arg GetClientsParams) ([]GetClientsRow, error) {
+	rows, err := q.db.Query(ctx, getClients,
+		arg.NameFilter,
+		arg.EmailFilter,
+		arg.PhoneFilter,
+		arg.EmailVerifiedFilter,
+		arg.ScoreMinFilter,
+		arg.ScoreMaxFilter,
+		arg.CreatedFromFilter,
+		arg.CreatedToFilter,
+		arg.UpdatedFromFilter,
+		arg.UpdatedToFilter,
+		arg.SortOrder,
+		arg.SortBy,
+		arg.Page,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetClientsPaginatedRow
+	var items []GetClientsRow
 	for rows.Next() {
-		var i GetClientsPaginatedRow
+		var i GetClientsRow
 		if err := rows.Scan(
 			&i.ClientID,
 			&i.Name,
@@ -194,6 +290,7 @@ func (q *Queries) GetClientsPaginated(ctx context.Context, arg GetClientsPaginat
 			&i.EmailToken,
 			&i.EmailTokenExpiration,
 			&i.Phone,
+			&i.Score,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -209,55 +306,88 @@ func (q *Queries) GetClientsPaginated(ctx context.Context, arg GetClientsPaginat
 	return items, nil
 }
 
-const insertClientOrderAssignments = `-- name: InsertClientOrderAssignments :exec
-INSERT INTO clients_orders (client_id, order_id)
-SELECT $1, unnest($2::int[])
+const hardDeleteClient = `-- name: HardDeleteClient :exec
+DELETE FROM clients WHERE client_id = $1
 `
 
-type InsertClientOrderAssignmentsParams struct {
-	ClientID int32
-	Column2  []int32
+func (q *Queries) HardDeleteClient(ctx context.Context, clientID int32) error {
+	_, err := q.db.Exec(ctx, hardDeleteClient, clientID)
+	return err
 }
 
-// Then insert new assignments
-func (q *Queries) InsertClientOrderAssignments(ctx context.Context, arg InsertClientOrderAssignmentsParams) error {
-	_, err := q.db.Exec(ctx, insertClientOrderAssignments, arg.ClientID, arg.Column2)
+const restoreClient = `-- name: RestoreClient :exec
+UPDATE clients SET deleted_at = NULL WHERE client_id = $1
+`
+
+func (q *Queries) RestoreClient(ctx context.Context, clientID int32) error {
+	_, err := q.db.Exec(ctx, restoreClient, clientID)
+	return err
+}
+
+const setEmailVerificationToken = `-- name: SetEmailVerificationToken :exec
+UPDATE clients
+SET
+    email_token = $1::text,
+    email_token_expiration = $2::timestamptz
+WHERE client_id = $3
+`
+
+type SetEmailVerificationTokenParams struct {
+	EmailToken           string
+	EmailTokenExpiration pgtype.Timestamptz
+	ClientID             int32
+}
+
+func (q *Queries) SetEmailVerificationToken(ctx context.Context, arg SetEmailVerificationTokenParams) error {
+	_, err := q.db.Exec(ctx, setEmailVerificationToken, arg.EmailToken, arg.EmailTokenExpiration, arg.ClientID)
+	return err
+}
+
+const softDeleteClient = `-- name: SoftDeleteClient :exec
+UPDATE clients SET deleted_at = NOW() WHERE client_id = $1
+`
+
+func (q *Queries) SoftDeleteClient(ctx context.Context, clientID int32) error {
+	_, err := q.db.Exec(ctx, softDeleteClient, clientID)
 	return err
 }
 
 const updateClient = `-- name: UpdateClient :exec
 UPDATE clients
 SET
-  name = COALESCE($2, name),
-  email = COALESCE($3, email),
-  email_verified = CASE WHEN $3 IS NOT NULL THEN false ELSE email_verified END,
-  phone = COALESCE($4, phone)
-WHERE client_id = $1
+    name = COALESCE($1::text, name),
+    email = COALESCE($2::text, email),
+    phone = COALESCE($3::text, phone),
+    updated_at = NOW()
+WHERE client_id = $4
 `
 
 type UpdateClientParams struct {
+	Name     *string
+	Email    *string
+	Phone    *string
 	ClientID int32
-	Name     string
-	Email    string
-	Phone    string
 }
 
-// Update client fields
 func (q *Queries) UpdateClient(ctx context.Context, arg UpdateClientParams) error {
 	_, err := q.db.Exec(ctx, updateClient,
-		arg.ClientID,
 		arg.Name,
 		arg.Email,
 		arg.Phone,
+		arg.ClientID,
 	)
 	return err
 }
 
 const verifyClientEmail = `-- name: VerifyClientEmail :exec
-UPDATE clients SET email_verified = true WHERE email_token = $1
+UPDATE clients
+SET
+    email_verified = true,
+    email_token = NULL,
+    email_token_expiration = NULL
+WHERE email_token = $1
 `
 
-// Verify client email by token
 func (q *Queries) VerifyClientEmail(ctx context.Context, emailToken *string) error {
 	_, err := q.db.Exec(ctx, verifyClientEmail, emailToken)
 	return err

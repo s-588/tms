@@ -10,7 +10,11 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         overrides:
-          - db_type: "money"
+          - db_type: "numeric"
+            go_type:
+              import: "github.com/shopspring/decimal"
+              type: "Decimal"
+          - db_type: "pg_catalog.numeric"
             go_type:
               import: "github.com/shopspring/decimal"
               type: "Decimal"
@@ -19,4 +23,3 @@ sql:
             go_type: string
           - db_type: "text"
             go_type: string
-          

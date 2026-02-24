@@ -7,39 +7,92 @@ package generated
 
 import (
 	"context"
-	"time"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
 
+const bulkHardDeleteOrders = `-- name: BulkHardDeleteOrders :exec
+DELETE FROM orders WHERE order_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkHardDeleteOrders(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkHardDeleteOrders, ids)
+	return err
+}
+
+const bulkSoftDeleteOrders = `-- name: BulkSoftDeleteOrders :exec
+UPDATE orders SET deleted_at = NOW() WHERE order_id = ANY($1::int[])
+`
+
+func (q *Queries) BulkSoftDeleteOrders(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkSoftDeleteOrders, ids)
+	return err
+}
+
 const createOrder = `-- name: CreateOrder :one
-insert into orders (distance,weight,total_price,status)
-values ($1,$2,$3,$4)
-returning order_id, distance, weight, total_price, status, created_at, updated_at, deleted_at
+INSERT INTO orders (
+    client_id, transport_id, employee_id, grade,
+    distance, weight, total_price, price_id, status,
+    node_id_start, node_id_end
+) VALUES (
+    $1::int,
+    $2::int,
+    $3::int,
+    $4::smallint,
+    $5::int,
+    $6::int,
+    $7::numeric,
+    $8::int,
+    $9::order_status,
+    $10::int,
+    $11::int
+)
+RETURNING order_id, client_id, transport_id, employee_id, price_id, grade, distance, weight, total_price, status, node_id_start, node_id_end, created_at, updated_at, deleted_at
 `
 
 type CreateOrderParams struct {
-	Distance   int32
-	Weight     int32
-	TotalPrice decimal.Decimal
-	Status     string
+	ClientID    int32
+	TransportID int32
+	EmployeeID  int32
+	Grade       int16
+	Distance    int32
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	PriceID     int32
+	Status      OrderStatus
+	NodeIDStart int32
+	NodeIDEnd   int32
 }
 
-// Create new order
 func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order, error) {
 	row := q.db.QueryRow(ctx, createOrder,
+		arg.ClientID,
+		arg.TransportID,
+		arg.EmployeeID,
+		arg.Grade,
 		arg.Distance,
 		arg.Weight,
 		arg.TotalPrice,
+		arg.PriceID,
 		arg.Status,
+		arg.NodeIDStart,
+		arg.NodeIDEnd,
 	)
 	var i Order
 	err := row.Scan(
 		&i.OrderID,
+		&i.ClientID,
+		&i.TransportID,
+		&i.EmployeeID,
+		&i.PriceID,
+		&i.Grade,
 		&i.Distance,
 		&i.Weight,
 		&i.TotalPrice,
 		&i.Status,
+		&i.NodeIDStart,
+		&i.NodeIDEnd,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -47,41 +100,27 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 	return i, err
 }
 
-const deleteOrder = `-- name: DeleteOrder :exec
-delete from orders where order_id = $1
+const getOrder = `-- name: GetOrder :one
+SELECT order_id, client_id, transport_id, employee_id, price_id, grade, distance, weight, total_price, status, node_id_start, node_id_end, created_at, updated_at, deleted_at FROM orders
+WHERE order_id = $1 AND deleted_at IS NULL
 `
 
-// Delete order
-func (q *Queries) DeleteOrder(ctx context.Context, orderID int32) error {
-	_, err := q.db.Exec(ctx, deleteOrder, orderID)
-	return err
-}
-
-const deleteOrderTransportAssignments = `-- name: DeleteOrderTransportAssignments :exec
-delete from orders_transports where order_id = $1
-`
-
-// Assign/unassign transports to order (replace all connections)
-// First delete existing assignments
-func (q *Queries) DeleteOrderTransportAssignments(ctx context.Context, orderID int32) error {
-	_, err := q.db.Exec(ctx, deleteOrderTransportAssignments, orderID)
-	return err
-}
-
-const getOrderByorder_id = `-- name: GetOrderByorder_id :one
-select order_id, distance, weight, total_price, status, created_at, updated_at, deleted_at from orders o where order_id = $1 and o.deleted_at is null
-`
-
-// Get single order by order_id
-func (q *Queries) GetOrderByorder_id(ctx context.Context, orderID int32) (Order, error) {
-	row := q.db.QueryRow(ctx, getOrderByorder_id, orderID)
+func (q *Queries) GetOrder(ctx context.Context, orderID int32) (Order, error) {
+	row := q.db.QueryRow(ctx, getOrder, orderID)
 	var i Order
 	err := row.Scan(
 		&i.OrderID,
+		&i.ClientID,
+		&i.TransportID,
+		&i.EmployeeID,
+		&i.PriceID,
+		&i.Grade,
 		&i.Distance,
 		&i.Weight,
 		&i.TotalPrice,
 		&i.Status,
+		&i.NodeIDStart,
+		&i.NodeIDEnd,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -89,46 +128,143 @@ func (q *Queries) GetOrderByorder_id(ctx context.Context, orderID int32) (Order,
 	return i, err
 }
 
-const getOrderPaginated = `-- name: GetOrderPaginated :many
-select order_id, distance, weight, total_price, status, created_at, updated_at, deleted_at,count(*) as total_count   from orders o
-where o.deleted_at is null
-order by order_id
-limit $1 offset $2
+const getOrders = `-- name: GetOrders :many
+SELECT order_id, client_id, transport_id, employee_id, price_id, grade, distance, weight, total_price, status, node_id_start, node_id_end, created_at, updated_at, deleted_at,
+       count(*) OVER() AS total_count
+FROM orders
+WHERE deleted_at IS NULL
+  AND ($1::order_status IS NULL OR status = $1::order_status)
+  AND ($2::numeric IS NULL OR total_price >= $2::numeric)
+  AND ($3::numeric IS NULL OR total_price <= $3::numeric)
+  AND ($4::int IS NULL OR distance >= $4::int)
+  AND ($5::int IS NULL OR distance <= $5::int)
+  AND ($6::int IS NULL OR weight >= $6::int)
+  AND ($7::int IS NULL OR weight <= $7::int)
+  AND ($8::int IS NULL OR client_id = $8::int)
+  AND ($9::int IS NULL OR transport_id = $9::int)
+  AND ($10::int IS NULL OR employee_id = $10::int)
+  AND ($11::int IS NULL OR price_id = $11::int)
+  AND ($12::smallint IS NULL OR grade >= $12::smallint)
+  AND ($13::smallint IS NULL OR grade <= $13::smallint)
+  AND ($14::timestamptz IS NULL OR created_at >= $14::timestamptz)
+  AND ($15::timestamptz IS NULL OR created_at <= $15::timestamptz)
+  AND ($16::timestamptz IS NULL OR updated_at >= $16::timestamptz)
+  AND ($17::timestamptz IS NULL OR updated_at <= $17::timestamptz)
+ORDER BY
+    CASE WHEN $18::text = 'ASC' THEN
+        CASE $19::text
+            WHEN 'order_id' THEN order_id::text
+            WHEN 'distance' THEN distance::text
+            WHEN 'weight' THEN weight::text
+            WHEN 'total_price' THEN total_price::text
+            WHEN 'status' THEN status::text
+            WHEN 'grade' THEN grade::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END ASC,
+    CASE WHEN $18::text = 'DESC' THEN
+        CASE $19::text
+            WHEN 'order_id' THEN order_id::text
+            WHEN 'distance' THEN distance::text
+            WHEN 'weight' THEN weight::text
+            WHEN 'total_price' THEN total_price::text
+            WHEN 'status' THEN status::text
+            WHEN 'grade' THEN grade::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END DESC
+LIMIT $21 OFFSET $20
 `
 
-type GetOrderPaginatedParams struct {
-	Limit  int32
-	Offset int32
+type GetOrdersParams struct {
+	StatusFilter      NullOrderStatus
+	TotalPriceMin     pgtype.Numeric
+	TotalPriceMax     pgtype.Numeric
+	DistanceMin       *int32
+	DistanceMax       *int32
+	WeightMin         *int32
+	WeightMax         *int32
+	ClientIDFilter    *int32
+	TransportIDFilter *int32
+	EmployeeIDFilter  *int32
+	PriceIDFilter     *int32
+	GradeMin          *int16
+	GradeMax          *int16
+	CreatedFrom       pgtype.Timestamptz
+	CreatedTo         pgtype.Timestamptz
+	UpdatedFrom       pgtype.Timestamptz
+	UpdatedTo         pgtype.Timestamptz
+	SortOrder         *string
+	SortBy            *string
+	Offset            int32
+	Limit             int32
 }
 
-type GetOrderPaginatedRow struct {
-	OrderID    int32
-	Distance   int32
-	Weight     int32
-	TotalPrice decimal.Decimal
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
-	TotalCount int64
+type GetOrdersRow struct {
+	OrderID     int32
+	ClientID    int32
+	TransportID int32
+	EmployeeID  int32
+	PriceID     int32
+	Grade       int16
+	Distance    int32
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	Status      OrderStatus
+	NodeIDStart *int32
+	NodeIDEnd   *int32
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	DeletedAt   pgtype.Timestamptz
+	TotalCount  int64
 }
 
-// Get paginated order list
-func (q *Queries) GetOrderPaginated(ctx context.Context, arg GetOrderPaginatedParams) ([]GetOrderPaginatedRow, error) {
-	rows, err := q.db.Query(ctx, getOrderPaginated, arg.Limit, arg.Offset)
+func (q *Queries) GetOrders(ctx context.Context, arg GetOrdersParams) ([]GetOrdersRow, error) {
+	rows, err := q.db.Query(ctx, getOrders,
+		arg.StatusFilter,
+		arg.TotalPriceMin,
+		arg.TotalPriceMax,
+		arg.DistanceMin,
+		arg.DistanceMax,
+		arg.WeightMin,
+		arg.WeightMax,
+		arg.ClientIDFilter,
+		arg.TransportIDFilter,
+		arg.EmployeeIDFilter,
+		arg.PriceIDFilter,
+		arg.GradeMin,
+		arg.GradeMax,
+		arg.CreatedFrom,
+		arg.CreatedTo,
+		arg.UpdatedFrom,
+		arg.UpdatedTo,
+		arg.SortOrder,
+		arg.SortBy,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetOrderPaginatedRow
+	var items []GetOrdersRow
 	for rows.Next() {
-		var i GetOrderPaginatedRow
+		var i GetOrdersRow
 		if err := rows.Scan(
 			&i.OrderID,
+			&i.ClientID,
+			&i.TransportID,
+			&i.EmployeeID,
+			&i.PriceID,
+			&i.Grade,
 			&i.Distance,
 			&i.Weight,
 			&i.TotalPrice,
 			&i.Status,
+			&i.NodeIDStart,
+			&i.NodeIDEnd,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -144,108 +280,96 @@ func (q *Queries) GetOrderPaginated(ctx context.Context, arg GetOrderPaginatedPa
 	return items, nil
 }
 
-const getOrderTransports = `-- name: GetOrderTransports :many
-select t.transport_id, t.employee_id, t.model, t.license_plate, t.payload_capacity, t.fuel_id, t.fuel_consumption, t.created_at, t.updated_at, t.deleted_at,count(*) as total_count   from transports t
-join orders_transports ot on t.transport_id = ot.transport_id
-where ot.order_id = $1 and t.deleted_at is null
-order by ot.order_id
-limit $2 offset $3
+const hardDeleteOrder = `-- name: HardDeleteOrder :exec
+DELETE FROM orders WHERE order_id = $1
 `
 
-type GetOrderTransportsParams struct {
-	OrderID int32
-	Limit   int32
-	Offset  int32
+func (q *Queries) HardDeleteOrder(ctx context.Context, orderID int32) error {
+	_, err := q.db.Exec(ctx, hardDeleteOrder, orderID)
+	return err
 }
 
-type GetOrderTransportsRow struct {
-	TransportID     int32
-	EmployeeID      *int32
-	Model           string
-	LicensePlate    *string
-	PayloadCapacity int32
-	FuelID          int32
-	FuelConsumption int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       time.Time
-	TotalCount      int64
-}
-
-// Get order's transports
-func (q *Queries) GetOrderTransports(ctx context.Context, arg GetOrderTransportsParams) ([]GetOrderTransportsRow, error) {
-	rows, err := q.db.Query(ctx, getOrderTransports, arg.OrderID, arg.Limit, arg.Offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []GetOrderTransportsRow
-	for rows.Next() {
-		var i GetOrderTransportsRow
-		if err := rows.Scan(
-			&i.TransportID,
-			&i.EmployeeID,
-			&i.Model,
-			&i.LicensePlate,
-			&i.PayloadCapacity,
-			&i.FuelID,
-			&i.FuelConsumption,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.TotalCount,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const insertOrderTransportAssignments = `-- name: InsertOrderTransportAssignments :exec
-insert into orders_transports (order_id, transport_id)
-select $1, unnest($2::int[])
+const restoreOrder = `-- name: RestoreOrder :exec
+UPDATE orders SET deleted_at = NULL WHERE order_id = $1
 `
 
-type InsertOrderTransportAssignmentsParams struct {
-	OrderID int32
-	Column2 []int32
+func (q *Queries) RestoreOrder(ctx context.Context, orderID int32) error {
+	_, err := q.db.Exec(ctx, restoreOrder, orderID)
+	return err
 }
 
-// Then insert new assignments
-func (q *Queries) InsertOrderTransportAssignments(ctx context.Context, arg InsertOrderTransportAssignmentsParams) error {
-	_, err := q.db.Exec(ctx, insertOrderTransportAssignments, arg.OrderID, arg.Column2)
+const softDeleteOrder = `-- name: SoftDeleteOrder :exec
+UPDATE orders SET deleted_at = NOW() WHERE order_id = $1
+`
+
+func (q *Queries) SoftDeleteOrder(ctx context.Context, orderID int32) error {
+	_, err := q.db.Exec(ctx, softDeleteOrder, orderID)
 	return err
 }
 
 const updateOrder = `-- name: UpdateOrder :exec
-update orders
-set distance = coalesce($2, distance),
-weight = coalesce($3, weight),
-total_price = coalesce($4, total_price),
-status = coalesce($5, status)
-where order_id = $1
+UPDATE orders
+SET
+    client_id = COALESCE($1::int, client_id),
+    transport_id = COALESCE($2::int, transport_id),
+    employee_id = COALESCE($3::int, employee_id),
+    grade = COALESCE($4::smallint, grade),
+    distance = COALESCE($5::int, distance),
+    weight = COALESCE($6::int, weight),
+    total_price = COALESCE($7::numeric, total_price),
+    price_id = COALESCE($8::int, price_id),
+    status = COALESCE($9::order_status, status),
+    node_id_start = COALESCE($10::int, node_id_start),
+    node_id_end = COALESCE($11::int, node_id_end),
+    updated_at = NOW()
+WHERE order_id = $12
 `
 
 type UpdateOrderParams struct {
-	OrderID    int32
-	Distance   int32
-	Weight     int32
-	TotalPrice decimal.Decimal
-	Status     string
+	ClientID    *int32
+	TransportID *int32
+	EmployeeID  *int32
+	Grade       *int16
+	Distance    *int32
+	Weight      *int32
+	TotalPrice  pgtype.Numeric
+	PriceID     *int32
+	Status      NullOrderStatus
+	NodeIDStart *int32
+	NodeIDEnd   *int32
+	OrderID     int32
 }
 
-// Update order fields
 func (q *Queries) UpdateOrder(ctx context.Context, arg UpdateOrderParams) error {
 	_, err := q.db.Exec(ctx, updateOrder,
-		arg.OrderID,
+		arg.ClientID,
+		arg.TransportID,
+		arg.EmployeeID,
+		arg.Grade,
 		arg.Distance,
 		arg.Weight,
 		arg.TotalPrice,
+		arg.PriceID,
 		arg.Status,
+		arg.NodeIDStart,
+		arg.NodeIDEnd,
+		arg.OrderID,
 	)
+	return err
+}
+
+const updateOrderStatus = `-- name: UpdateOrderStatus :exec
+UPDATE orders
+SET status = $1::order_status, updated_at = NOW()
+WHERE order_id = $2
+`
+
+type UpdateOrderStatusParams struct {
+	Status  OrderStatus
+	OrderID int32
+}
+
+func (q *Queries) UpdateOrderStatus(ctx context.Context, arg UpdateOrderStatusParams) error {
+	_, err := q.db.Exec(ctx, updateOrderStatus, arg.Status, arg.OrderID)
 	return err
 }

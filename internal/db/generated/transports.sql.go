@@ -7,75 +7,68 @@ package generated
 
 import (
 	"context"
-	"time"
+
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
-const createTransport = `-- name: CreateTransport :one
-insert into transports(employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption)
-values ($1,$2,$3,$4,$5,$6)
-returning transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at
+const bulkHardDeleteTransports = `-- name: BulkHardDeleteTransports :exec
+DELETE FROM transports WHERE transport_id = ANY($1::int[])
 `
 
-type CreateTransportParams struct {
-	EmployeeID      *int32
-	Model           string
-	LicensePlate    *string
-	PayloadCapacity int32
-	FuelID          int32
-	FuelConsumption int32
-}
-
-// Create new transport
-func (q *Queries) CreateTransport(ctx context.Context, arg CreateTransportParams) (Transport, error) {
-	row := q.db.QueryRow(ctx, createTransport,
-		arg.EmployeeID,
-		arg.Model,
-		arg.LicensePlate,
-		arg.PayloadCapacity,
-		arg.FuelID,
-		arg.FuelConsumption,
-	)
-	var i Transport
-	err := row.Scan(
-		&i.TransportID,
-		&i.EmployeeID,
-		&i.Model,
-		&i.LicensePlate,
-		&i.PayloadCapacity,
-		&i.FuelID,
-		&i.FuelConsumption,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
-}
-
-const deleteTransport = `-- name: DeleteTransport :exec
-delete from transports where transport_id = $1
-`
-
-// Delete transport
-func (q *Queries) DeleteTransport(ctx context.Context, transportID int32) error {
-	_, err := q.db.Exec(ctx, deleteTransport, transportID)
+func (q *Queries) BulkHardDeleteTransports(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkHardDeleteTransports, ids)
 	return err
 }
 
-const getTransportBytransport_id = `-- name: GetTransportBytransport_id :one
-select transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at from transports t where transport_id = $1 and t.deleted_at is null
+const bulkSoftDeleteTransports = `-- name: BulkSoftDeleteTransports :exec
+UPDATE transports SET deleted_at = NOW() WHERE transport_id = ANY($1::int[])
 `
 
-// Get single transport by transport_id
-func (q *Queries) GetTransportBytransport_id(ctx context.Context, transportID int32) (Transport, error) {
-	row := q.db.QueryRow(ctx, getTransportBytransport_id, transportID)
+func (q *Queries) BulkSoftDeleteTransports(ctx context.Context, ids []int32) error {
+	_, err := q.db.Exec(ctx, bulkSoftDeleteTransports, ids)
+	return err
+}
+
+const createTransport = `-- name: CreateTransport :one
+INSERT INTO transports (
+    model, license_plate, payload_capacity, fuel_consumption,
+    inspection_passed, inspection_date
+) VALUES (
+    $1::text,
+    $2::text,
+    $3::int,
+    $4::int,
+    $5::boolean,
+    $6::date
+)
+RETURNING transport_id, model, license_plate, payload_capacity, fuel_consumption, created_at, updated_at, deleted_at
+`
+
+type CreateTransportParams struct {
+	Model            string
+	LicensePlate     string
+	PayloadCapacity  int32
+	FuelConsumption  int32
+	InspectionPassed bool
+	InspectionDate   pgtype.Date
+}
+
+func (q *Queries) CreateTransport(ctx context.Context, arg CreateTransportParams) (Transport, error) {
+	row := q.db.QueryRow(ctx, createTransport,
+		arg.Model,
+		arg.LicensePlate,
+		arg.PayloadCapacity,
+		arg.FuelConsumption,
+		arg.InspectionPassed,
+		arg.InspectionDate,
+	)
 	var i Transport
 	err := row.Scan(
 		&i.TransportID,
-		&i.EmployeeID,
 		&i.Model,
 		&i.LicensePlate,
 		&i.PayloadCapacity,
-		&i.FuelID,
 		&i.FuelConsumption,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -84,49 +77,210 @@ func (q *Queries) GetTransportBytransport_id(ctx context.Context, transportID in
 	return i, err
 }
 
-const getTransportsPaginated = `-- name: GetTransportsPaginated :many
-select transport_id, employee_id, model, license_plate, payload_capacity, fuel_id, fuel_consumption, created_at, updated_at, deleted_at,count(*) as total_count   from transports t
-where t.deleted_at is null
-order by transport_id
-limit $1 offset $2
+const getTransport = `-- name: GetTransport :one
+SELECT transport_id, model, license_plate, payload_capacity, fuel_consumption, created_at, updated_at, deleted_at FROM transports
+WHERE transport_id = $1 AND deleted_at IS NULL
 `
 
-type GetTransportsPaginatedParams struct {
-	Limit  int32
-	Offset int32
+func (q *Queries) GetTransport(ctx context.Context, transportID int32) (Transport, error) {
+	row := q.db.QueryRow(ctx, getTransport, transportID)
+	var i Transport
+	err := row.Scan(
+		&i.TransportID,
+		&i.Model,
+		&i.LicensePlate,
+		&i.PayloadCapacity,
+		&i.FuelConsumption,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
 }
 
-type GetTransportsPaginatedRow struct {
-	TransportID     int32
-	EmployeeID      *int32
-	Model           string
-	LicensePlate    *string
-	PayloadCapacity int32
-	FuelID          int32
-	FuelConsumption int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       time.Time
-	TotalCount      int64
+const getTransportOrders = `-- name: GetTransportOrders :many
+SELECT o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at,
+       count(*) OVER() AS total_count
+FROM orders o
+WHERE o.transport_id = $1 AND o.deleted_at IS NULL
+ORDER BY o.created_at DESC
+LIMIT $3 OFFSET $2
+`
+
+type GetTransportOrdersParams struct {
+	TransportID int32
+	Offset      int32
+	Limit       int32
 }
 
-// Get paginated transports list
-func (q *Queries) GetTransportsPaginated(ctx context.Context, arg GetTransportsPaginatedParams) ([]GetTransportsPaginatedRow, error) {
-	rows, err := q.db.Query(ctx, getTransportsPaginated, arg.Limit, arg.Offset)
+type GetTransportOrdersRow struct {
+	OrderID     int32
+	ClientID    int32
+	TransportID int32
+	EmployeeID  int32
+	PriceID     int32
+	Grade       int16
+	Distance    int32
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	Status      OrderStatus
+	NodeIDStart *int32
+	NodeIDEnd   *int32
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	DeletedAt   pgtype.Timestamptz
+	TotalCount  int64
+}
+
+func (q *Queries) GetTransportOrders(ctx context.Context, arg GetTransportOrdersParams) ([]GetTransportOrdersRow, error) {
+	rows, err := q.db.Query(ctx, getTransportOrders, arg.TransportID, arg.Offset, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetTransportsPaginatedRow
+	var items []GetTransportOrdersRow
 	for rows.Next() {
-		var i GetTransportsPaginatedRow
+		var i GetTransportOrdersRow
 		if err := rows.Scan(
+			&i.OrderID,
+			&i.ClientID,
 			&i.TransportID,
 			&i.EmployeeID,
+			&i.PriceID,
+			&i.Grade,
+			&i.Distance,
+			&i.Weight,
+			&i.TotalPrice,
+			&i.Status,
+			&i.NodeIDStart,
+			&i.NodeIDEnd,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.TotalCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTransports = `-- name: GetTransports :many
+SELECT transport_id, model, license_plate, payload_capacity, fuel_consumption, created_at, updated_at, deleted_at,
+       count(*) OVER() AS total_count
+FROM transports
+WHERE deleted_at IS NULL
+  AND ($1::text IS NULL OR model ILIKE '%' || $1::text || '%')
+  AND ($2::text IS NULL OR license_plate ILIKE '%' || $2::text || '%')
+  AND ($3::int IS NULL OR payload_capacity >= $3::int)
+  AND ($4::int IS NULL OR payload_capacity <= $4::int)
+  AND ($5::int IS NULL OR fuel_consumption >= $5::int)
+  AND ($6::int IS NULL OR fuel_consumption <= $6::int)
+  AND ($7::boolean IS NULL OR inspection_passed = $7::boolean)
+  AND ($8::date IS NULL OR inspection_date >= $8::date)
+  AND ($9::date IS NULL OR inspection_date <= $9::date)
+  AND ($10::timestamptz IS NULL OR created_at >= $10::timestamptz)
+  AND ($11::timestamptz IS NULL OR created_at <= $11::timestamptz)
+  AND ($12::timestamptz IS NULL OR updated_at >= $12::timestamptz)
+  AND ($13::timestamptz IS NULL OR updated_at <= $13::timestamptz)
+ORDER BY
+    CASE WHEN $14::text = 'ASC' THEN
+        CASE $15::text
+            WHEN 'transport_id' THEN transport_id::text
+            WHEN 'model' THEN model
+            WHEN 'license_plate' THEN license_plate
+            WHEN 'payload_capacity' THEN payload_capacity::text
+            WHEN 'fuel_consumption' THEN fuel_consumption::text
+            WHEN 'inspection_passed' THEN inspection_passed::text
+            WHEN 'inspection_date' THEN inspection_date::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END ASC,
+    CASE WHEN $14::text = 'DESC' THEN
+        CASE $15::text
+            WHEN 'transport_id' THEN transport_id::text
+            WHEN 'model' THEN model
+            WHEN 'license_plate' THEN license_plate
+            WHEN 'payload_capacity' THEN payload_capacity::text
+            WHEN 'fuel_consumption' THEN fuel_consumption::text
+            WHEN 'inspection_passed' THEN inspection_passed::text
+            WHEN 'inspection_date' THEN inspection_date::text
+            WHEN 'created_at' THEN created_at::text
+            WHEN 'updated_at' THEN updated_at::text
+        END
+    END DESC
+LIMIT $17 OFFSET $16
+`
+
+type GetTransportsParams struct {
+	ModelFilter            *string
+	LicensePlateFilter     *string
+	PayloadCapacityMin     *int32
+	PayloadCapacityMax     *int32
+	FuelConsumptionMin     *int32
+	FuelConsumptionMax     *int32
+	InspectionPassedFilter *bool
+	InspectionDateFrom     pgtype.Date
+	InspectionDateTo       pgtype.Date
+	CreatedFrom            pgtype.Timestamptz
+	CreatedTo              pgtype.Timestamptz
+	UpdatedFrom            pgtype.Timestamptz
+	UpdatedTo              pgtype.Timestamptz
+	SortOrder              *string
+	SortBy                 *string
+	Offset                 int32
+	Limit                  int32
+}
+
+type GetTransportsRow struct {
+	TransportID     int32
+	Model           string
+	LicensePlate    *string
+	PayloadCapacity int32
+	FuelConsumption int32
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
+	TotalCount      int64
+}
+
+func (q *Queries) GetTransports(ctx context.Context, arg GetTransportsParams) ([]GetTransportsRow, error) {
+	rows, err := q.db.Query(ctx, getTransports,
+		arg.ModelFilter,
+		arg.LicensePlateFilter,
+		arg.PayloadCapacityMin,
+		arg.PayloadCapacityMax,
+		arg.FuelConsumptionMin,
+		arg.FuelConsumptionMax,
+		arg.InspectionPassedFilter,
+		arg.InspectionDateFrom,
+		arg.InspectionDateTo,
+		arg.CreatedFrom,
+		arg.CreatedTo,
+		arg.UpdatedFrom,
+		arg.UpdatedTo,
+		arg.SortOrder,
+		arg.SortBy,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTransportsRow
+	for rows.Next() {
+		var i GetTransportsRow
+		if err := rows.Scan(
+			&i.TransportID,
 			&i.Model,
 			&i.LicensePlate,
 			&i.PayloadCapacity,
-			&i.FuelID,
 			&i.FuelConsumption,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -143,38 +297,65 @@ func (q *Queries) GetTransportsPaginated(ctx context.Context, arg GetTransportsP
 	return items, nil
 }
 
+const hardDeleteTransport = `-- name: HardDeleteTransport :exec
+DELETE FROM transports WHERE transport_id = $1
+`
+
+func (q *Queries) HardDeleteTransport(ctx context.Context, transportID int32) error {
+	_, err := q.db.Exec(ctx, hardDeleteTransport, transportID)
+	return err
+}
+
+const restoreTransport = `-- name: RestoreTransport :exec
+UPDATE transports SET deleted_at = NULL WHERE transport_id = $1
+`
+
+func (q *Queries) RestoreTransport(ctx context.Context, transportID int32) error {
+	_, err := q.db.Exec(ctx, restoreTransport, transportID)
+	return err
+}
+
+const softDeleteTransport = `-- name: SoftDeleteTransport :exec
+UPDATE transports SET deleted_at = NOW() WHERE transport_id = $1
+`
+
+func (q *Queries) SoftDeleteTransport(ctx context.Context, transportID int32) error {
+	_, err := q.db.Exec(ctx, softDeleteTransport, transportID)
+	return err
+}
+
 const updateTransport = `-- name: UpdateTransport :exec
-update transports
-set
-employee_id = coalesce($2, employee_id),
-model = coalesce($3, model),
-license_plate = coalesce($4, license_plate),
-payload_capacity = coalesce($5, payload_capacity),
-fuel_id = coalesce($6, fuel_id),
-fuel_consumption = coalesce($7, fuel_consumption)
-where transport_id = $1
+UPDATE transports
+SET
+    model = COALESCE($1::text, model),
+    license_plate = COALESCE($2::text, license_plate),
+    payload_capacity = COALESCE($3::int, payload_capacity),
+    fuel_consumption = COALESCE($4::int, fuel_consumption),
+    inspection_passed = COALESCE($5::boolean, inspection_passed),
+    inspection_date = COALESCE($6::date, inspection_date),
+    updated_at = NOW()
+WHERE transport_id = $7
 `
 
 type UpdateTransportParams struct {
-	TransportID     int32
-	EmployeeID      *int32
-	Model           string
-	LicensePlate    *string
-	PayloadCapacity int32
-	FuelID          int32
-	FuelConsumption int32
+	Model            *string
+	LicensePlate     *string
+	PayloadCapacity  *int32
+	FuelConsumption  *int32
+	InspectionPassed *bool
+	InspectionDate   pgtype.Date
+	TransportID      int32
 }
 
-// Update transport fields
 func (q *Queries) UpdateTransport(ctx context.Context, arg UpdateTransportParams) error {
 	_, err := q.db.Exec(ctx, updateTransport,
-		arg.TransportID,
-		arg.EmployeeID,
 		arg.Model,
 		arg.LicensePlate,
 		arg.PayloadCapacity,
-		arg.FuelID,
 		arg.FuelConsumption,
+		arg.InspectionPassed,
+		arg.InspectionDate,
+		arg.TransportID,
 	)
 	return err
 }

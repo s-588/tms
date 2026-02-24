@@ -5,10 +5,187 @@
 package generated
 
 import (
-	"time"
+	"database/sql/driver"
+	"fmt"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 )
+
+type EmployeeJobTitle string
+
+const (
+	EmployeeJobTitleDriver           EmployeeJobTitle = "driver"
+	EmployeeJobTitleDispatcher       EmployeeJobTitle = "dispatcher"
+	EmployeeJobTitleMechanic         EmployeeJobTitle = "mechanic"
+	EmployeeJobTitleLogisticsManager EmployeeJobTitle = "logistics_manager"
+)
+
+func (e *EmployeeJobTitle) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EmployeeJobTitle(s)
+	case string:
+		*e = EmployeeJobTitle(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EmployeeJobTitle: %T", src)
+	}
+	return nil
+}
+
+type NullEmployeeJobTitle struct {
+	EmployeeJobTitle EmployeeJobTitle
+	Valid            bool // Valid is true if EmployeeJobTitle is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEmployeeJobTitle) Scan(value interface{}) error {
+	if value == nil {
+		ns.EmployeeJobTitle, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EmployeeJobTitle.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEmployeeJobTitle) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EmployeeJobTitle), nil
+}
+
+type EmployeeStatus string
+
+const (
+	EmployeeStatusAvailable   EmployeeStatus = "available"
+	EmployeeStatusAssigned    EmployeeStatus = "assigned"
+	EmployeeStatusUnavailable EmployeeStatus = "unavailable"
+)
+
+func (e *EmployeeStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = EmployeeStatus(s)
+	case string:
+		*e = EmployeeStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for EmployeeStatus: %T", src)
+	}
+	return nil
+}
+
+type NullEmployeeStatus struct {
+	EmployeeStatus EmployeeStatus
+	Valid          bool // Valid is true if EmployeeStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullEmployeeStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.EmployeeStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.EmployeeStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullEmployeeStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.EmployeeStatus), nil
+}
+
+type InspectionStatus string
+
+const (
+	InspectionStatusReady   InspectionStatus = "ready"
+	InspectionStatusRepair  InspectionStatus = "repair"
+	InspectionStatusOverdue InspectionStatus = "overdue"
+)
+
+func (e *InspectionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = InspectionStatus(s)
+	case string:
+		*e = InspectionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for InspectionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullInspectionStatus struct {
+	InspectionStatus InspectionStatus
+	Valid            bool // Valid is true if InspectionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullInspectionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.InspectionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.InspectionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullInspectionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.InspectionStatus), nil
+}
+
+type OrderStatus string
+
+const (
+	OrderStatusPending    OrderStatus = "pending"
+	OrderStatusAssigned   OrderStatus = "assigned"
+	OrderStatusInProgress OrderStatus = "in_progress"
+	OrderStatusCompleted  OrderStatus = "completed"
+	OrderStatusCancelled  OrderStatus = "cancelled"
+)
+
+func (e *OrderStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = OrderStatus(s)
+	case string:
+		*e = OrderStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for OrderStatus: %T", src)
+	}
+	return nil
+}
+
+type NullOrderStatus struct {
+	OrderStatus OrderStatus
+	Valid       bool // Valid is true if OrderStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullOrderStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.OrderStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.OrderStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullOrderStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.OrderStatus), nil
+}
 
 type Client struct {
 	ClientID             int32
@@ -16,72 +193,95 @@ type Client struct {
 	Email                string
 	EmailVerified        bool
 	EmailToken           *string
-	EmailTokenExpiration time.Time
+	EmailTokenExpiration pgtype.Timestamptz
 	Phone                string
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	DeletedAt            time.Time
-}
-
-type ClientsOrder struct {
-	ClientID int32
-	OrderID  int32
+	Score                int16
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	DeletedAt            pgtype.Timestamptz
 }
 
 type Employee struct {
-	EmployeeID int32
-	Name       string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
+	EmployeeID        int32
+	Name              string
+	Status            EmployeeStatus
+	JobTitle          EmployeeJobTitle
+	HireDate          pgtype.Date
+	Salary            decimal.Decimal
+	LicenseIssued     pgtype.Date
+	LicenseExpiration pgtype.Date
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
+	DeletedAt         pgtype.Timestamptz
 }
 
-type Fuel struct {
-	FuelID    int32
-	Name      string
-	Supplier  *string
-	Price     decimal.Decimal
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt time.Time
+type Inspection struct {
+	InspectionID         int32
+	TransportID          int32
+	InspectionDate       pgtype.Date
+	InspectionExpiration pgtype.Date
+	Status               InspectionStatus
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+	DeletedAt            pgtype.Timestamptz
+}
+
+type Insurance struct {
+	InsuranceID         int32
+	TransportID         int32
+	InsuranceDate       pgtype.Date
+	InsuranceExpiration pgtype.Date
+	Payment             decimal.Decimal
+	Coverage            decimal.Decimal
+	CreatedAt           pgtype.Timestamptz
+	UpdatedAt           pgtype.Timestamptz
+	DeletedAt           pgtype.Timestamptz
+}
+
+type Node struct {
+	NodeID    int32
+	Name      *string
+	Geom      pgtype.Point
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	DeletedAt pgtype.Timestamptz
 }
 
 type Order struct {
-	OrderID    int32
-	Distance   int32
-	Weight     int32
-	TotalPrice decimal.Decimal
-	Status     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	DeletedAt  time.Time
-}
-
-type OrdersTransport struct {
 	OrderID     int32
+	ClientID    int32
 	TransportID int32
+	EmployeeID  int32
+	PriceID     int32
+	Grade       int16
+	Distance    int32
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	Status      OrderStatus
+	NodeIDStart *int32
+	NodeIDEnd   *int32
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	DeletedAt   pgtype.Timestamptz
 }
 
 type Price struct {
 	PriceID   int32
 	CargoType string
-	Cost      decimal.Decimal
 	Weight    int32
 	Distance  int32
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	DeletedAt time.Time
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	DeletedAt pgtype.Timestamptz
 }
 
 type Transport struct {
 	TransportID     int32
-	EmployeeID      *int32
 	Model           string
 	LicensePlate    *string
 	PayloadCapacity int32
-	FuelID          int32
 	FuelConsumption int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	DeletedAt       time.Time
+	CreatedAt       pgtype.Timestamptz
+	UpdatedAt       pgtype.Timestamptz
+	DeletedAt       pgtype.Timestamptz
 }
