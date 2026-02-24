@@ -3,12 +3,13 @@ package http
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
-	"github.com/s-588/tms/config"
-	"github.com/s-588/tms/db"
-	"github.com/s-588/tms/http/handler"
-	"github.com/s-588/tms/static/template"
+	"github.com/s-588/tms/internal/config"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/http/handler"
+	"github.com/s-588/tms/internal/ui"
 )
 
 type Server struct {
@@ -30,6 +31,7 @@ func New(ctx context.Context, db db.DB, cfg config.ServerConfig) *Server {
 func (s Server) Start() error {
 	s.setHandlers()
 	s.mux.HandleFunc("/", IndexHandler)
+	s.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
 	var err error
 	if s.Cfg.HTTPS {
@@ -41,7 +43,8 @@ func (s Server) Start() error {
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
-	template.Index().Render(r.Context(), w)
+	slog.Debug("serving home page")
+	ui.Index().Render(r.Context(), w)
 }
 
 func (s Server) Stop() {

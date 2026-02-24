@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/s-588/tms/db"
-	"github.com/s-588/tms/static/template"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
 )
 
 type Handler struct {
@@ -31,29 +31,22 @@ func parseIDFromReq(r *http.Request) (int, error) {
 	return 0, fmt.Errorf("no id value in path")
 }
 
-func parsePagination(r *http.Request) (limit, offset int) {
-	limitStr := r.URL.Query().Get("limit")
-	offsetStr := r.URL.Query().Get("offset")
+func parsePagination(r *http.Request) int32 {
+	pageStr := r.URL.Query().Get("page")
 
-	if limitStr == "" {
-		limit = 10
+	if pageStr == "" {
+		return 1
 	} else {
-		limit, _ = strconv.Atoi(limitStr)
-		if limit <= 0 {
+		p, _ := strconv.ParseInt(pageStr, 10, 32)
+		if p <= 0 {
 			// TODO: exclude this hardcoded limit to config value
-			limit = 10
+			p = 1
 		}
+		return int32(p)
 	}
-
-	offset, _ = strconv.Atoi(offsetStr)
-	if offset < 0 {
-		offset = 0
-	}
-
-	return limit, offset
 }
 
 func responseError(w http.ResponseWriter, r *http.Request, code int, msg string) {
 	w.WriteHeader(code)
-	template.ErrorMessage(msg).Render(r.Context(), w)
+	ui.ErrorMessage(msg).Render(r.Context(), w)
 }
