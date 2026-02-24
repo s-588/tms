@@ -1,0 +1,7 @@
+{
+  "componentsDir": "internal/ui/components",
+  "utilsDir": "internal/ui/utils",
+  "moduleName": "github.com/s-588/tms",
+  "jsDir": "static/js",
+  "jsPublicPath": "/static/js"
+}
