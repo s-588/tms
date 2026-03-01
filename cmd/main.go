@@ -5,9 +5,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/s-588/tms/config"
-	"github.com/s-588/tms/db"
-	"github.com/s-588/tms/http"
+	"github.com/s-588/tms/internal/config"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/http"
+	"github.com/s-588/tms/internal/logger"
 )
 
 func main() {
@@ -17,7 +18,7 @@ func main() {
 		return
 	}
 	slog.Info("config successfully parsed", "config", cfg)
-	closeLogFile, err := SetupSLog(cfg.Logger)
+	closeLogFile, err := logger.SetupSLog(cfg.Logger)
 	if err != nil {
 		slog.Error("can't start app", "error", err)
 		return

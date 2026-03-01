@@ -1,0 +1,21 @@
+version: "3"
+
+vars:
+  TAILWIND_CMD:
+    sh: "node_modules/.bin/tailwindcss"
+
+tasks:
+  templ:
+    desc: Run templ with integrated server and hot reload
+    cmds:
+      - templ generate --watch --cmd="go run cmd/main.go" --open-browser=false
+
+  tailwind:
+    desc: Watch Tailwind CSS changes
+    cmds:
+      - "node_modules/.bin/tailwindcss -i static/style/input.css -o static/css/style.css --watch"
+
+  dev:
+    desc: Start development server with hot reload
+    cmds:
+      - task --parallel tailwind templ

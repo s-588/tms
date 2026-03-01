@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -14,7 +15,7 @@ import (
 )
 
 var (
-	phoneRegex = regexp.MustCompile("^[+]?[0-9\\-\\s()]{7,25}$")
+	phoneRegex = regexp.MustCompile(`^[+]?[0-9\\-\\s()]{7,25}$`)
 )
 
 // GetClientsPage just retrieves clients from database and render clients page.
@@ -116,8 +117,8 @@ func parseClientFilters(r *http.Request) models.ClientFilter {
 
 }
 
-// GetClientHandler handler parse id from path, retrieve client from database
-// and return ClientDetails form to client.
+// // GetClientHandler handler parse id from path, retrieve client from database
+// // and return ClientDetails form to client.
 func (h Handler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
@@ -131,7 +132,7 @@ func (h Handler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
 		responseError(w, r, http.StatusNotFound, "client not found")
 		return
 	}
-	ui.ClientDetail(client).Render(r.Context(), w)
+	ui.ClientsViewSheetContent(client, ui.Form{}).Render(r.Context(), w)
 }
 
 // CreateClientHandler handler parse models.Client values from http form,
@@ -143,29 +144,30 @@ func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	client := models.Client{
-		Name:  r.PostForm.Get("name"),
-		Email: r.PostForm.Get("email"),
-		Phone: r.PostForm.Get("phone"),
-	}
 	// TODO: add token generation and insertion
+	form := ui.Form{}
+	name := r.PostForm.Get("name")
+	form["name"] = ui.FormField{
+		Value: name,
+		Err:   checkClientName(name),
+	}
+	email := r.PostForm.Get("email")
+	form["email"] = ui.FormField{
+		Value: email,
+		Err:   checkEmail(email),
+	}
 
-	errs := make(map[string]string)
-	if utf8.RuneCountInString(client.Name) <= 3 {
-		errs["name"] = "client name must be at least 3 characters"
+	phone := r.PostForm.Get("phone")
+	form["phone"] = ui.FormField{
+		Value: phone,
+		Err:   checkPhone(phone),
 	}
-	if _, err := mail.ParseAddress(client.Email); err != nil {
-		errs["email"] = "incorrect email format"
-	}
-	if !phoneRegex.MatchString(client.Phone) {
-		errs["phone"] = "incorrect phone format"
-	}
-	if len(errs) != 0 {
-		// ui.ClientCreateForm(errs).Render(r.Context(), w)
+	if len(form) != 0 {
+		ui.ClientsAddContent(form).Render(r.Context(), w)
 		return
 	}
 
-	createdClient, err := h.DB.CreateClient(r.Context(), client.Name, client.Email, client.Phone)
+	createdClient, err := h.DB.CreateClient(r.Context(), name, email, phone)
 	if err != nil {
 		slog.Error("can't create client", "error", err)
 		responseError(w, r, http.StatusInternalServerError, "something went wrong")
@@ -173,6 +175,29 @@ func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ui.CreateSuccess("Client added", "clients", int(createdClient.ClientID)).Render(r.Context(), w)
+}
+
+func checkClientName(name string) error {
+	if utf8.RuneCountInString(name) <= 3 {
+		return errors.New("client name must be at least 3 characters")
+	}
+	return nil
+}
+
+// checkEmail validates email format using net/mail.ParseAddress
+func checkEmail(email string) error {
+	if _, err := mail.ParseAddress(email); err != nil {
+		return errors.New("incorrect email format")
+	}
+	return nil
+}
+
+// checkPhone validates phone format using a regex
+func checkPhone(phone string) error {
+	if !phoneRegex.MatchString(phone) {
+		return errors.New("incorrect phone format")
+	}
+	return nil
 }
 
 // DeleteClient handler process soft delete of client with id parsed from path.
@@ -190,7 +215,7 @@ func (h Handler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	h.GetClientHandler(w, r)
 }
 
 // BulkDeleteClients handler soft delete multiple clients with ids parsed from
@@ -232,52 +257,52 @@ func (h Handler) BulkDeleteClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ui.ClientsTable(clients,  page , total, filter).Render(r.Context(), w)
+	ui.ClientsTable(clients, page, total, filter).Render(r.Context(), w)
 }
 
 // UpdateClient handler parse id from path and client's new values from form.
 // Return ClientDetail form with new values.
-func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
-	id, err := parseIDFromReq(r)
-	if err != nil {
-		slog.Error("can't parse id from URL path", "error", err)
-		responseError(w, r, http.StatusBadRequest, "incorrect client id")
-		return
-	}
-
-	// TODO: process a not existing client error
-	// existingClient, err := h.DB.GetClient(r.Context(), id)
-	// if err != nil {
-	// 	slog.Error("can't recieve client", "error", err)
-	// 	responseError(w, r, http.StatusInternalServerError, "something went wrong")
-	// 	return
-	// }
-
-	if err := r.ParseForm(); err != nil {
-		slog.Error("can't http form", "error", err)
-		responseError(w, r, http.StatusBadRequest, "invalid form data")
-		return
-	}
-	name, email, phone, errs := parseClientUpdateArgs(r)
-	if len(errs) != 0 {
-		// ui.ClientEditForm(existingClient, errs).Render(r.Context(), w)
-	}
-
-	if err := h.DB.UpdateClient(r.Context(), id, name, email, phone); err != nil {
-		slog.Error("can't update client", "error", err, "id", id)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
-		return
-	}
-
-	updatedClient, err := h.DB.GetClient(r.Context(), id)
-	if err != nil {
-		slog.Error("can't fetch updated client", "error", err, "id", id)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
-		return
-	}
-
-	ui.ClientDetail(updatedClient).Render(r.Context(), w)
-}
+// func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
+// 	id, err := parseIDFromReq(r)
+// 	if err != nil {
+// 		slog.Error("can't parse id from URL path", "error", err)
+// 		responseError(w, r, http.StatusBadRequest, "incorrect client id")
+// 		return
+// 	}
+//
+// 	// TODO: process a not existing client error
+// 	// existingClient, err := h.DB.GetClient(r.Context(), id)
+// 	// if err != nil {
+// 	// 	slog.Error("can't recieve client", "error", err)
+// 	// 	responseError(w, r, http.StatusInternalServerError, "something went wrong")
+// 	// 	return
+// 	// }
+//
+// 	if err := r.ParseForm(); err != nil {
+// 		slog.Error("can't http form", "error", err)
+// 		responseError(w, r, http.StatusBadRequest, "invalid form data")
+// 		return
+// 	}
+// 	name, email, phone, errs := parseClientUpdateArgs(r)
+// 	if len(errs) != 0 {
+// 		// ui.ClientEditForm(existingClient, errs).Render(r.Context(), w)
+// 	}
+//
+// 	if err := h.DB.UpdateClient(r.Context(), id, name, email, phone); err != nil {
+// 		slog.Error("can't update client", "error", err, "id", id)
+// 		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+// 		return
+// 	}
+//
+// 	updatedClient, err := h.DB.GetClient(r.Context(), id)
+// 	if err != nil {
+// 		slog.Error("can't fetch updated client", "error", err, "id", id)
+// 		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+// 		return
+// 	}
+//
+// 	ui.ClientDetail(updatedClient).Render(r.Context(), w)
+// }
 
 // parseClientUpdateArgs function parse r.Form and return Optional name, email and phone
 // args for client update.

@@ -1,79 +1,87 @@
-package template
+package ui
 
-import(
-"fmt"
-)
+import "fmt"
 
 templ ErrorMessage(msg string) {
-    <div class="notification is-danger">
-        <button class="delete"></button>
-        <strong>Error</strong><br>
-        { msg }
-        { children... }
-    </div>
+	<div class="notification is-danger">
+		<button class="delete"></button>
+		<strong>Error</strong>
+		<br/>
+		{ msg }
+		{ children... }
+	</div>
 }
 
 templ InfoMessage(msg string) {
-    <div class="notification is-info">
-        <button class="delete"></button>
-        <strong>Info</strong><br>
-        { msg }
-        { children... }
-    </div>
+	<div class="notification is-info">
+		<button class="delete"></button>
+		<strong>Info</strong>
+		<br/>
+		{ msg }
+		{ children... }
+	</div>
 }
 
 templ WarningMessage(msg string) {
-    <div class="notification is-warning">
-        <button class="delete"></button>
-        <strong>Warning</strong><br>
-        { msg }
-        { children... }
-    </div>
+	<div class="notification is-warning">
+		<button class="delete"></button>
+		<strong>Warning</strong>
+		<br/>
+		{ msg }
+		{ children... }
+	</div>
 }
 
-templ SuccessMessage(msg string){
-    <div class="notification is-success">
-        <button class="delete"></button>
-        <strong>Success</strong><br>
-        { msg }
-        { children... }
-    </div>
+templ SuccessMessage(msg string) {
+	<div class="notification is-success">
+		<button class="delete"></button>
+		<strong>Success</strong>
+		<br/>
+		{ msg }
+		{ children... }
+	</div>
 }
 
 // CreateRecordSuccessMessage render success message with msg as text and three buttons:
 // 1. View table sorted by create date
 // 2. Add new record
 // 3. Edit created record
-templ CreateSuccess(msg, table string, id int){
-    @SuccessMessage(msg){
- <div class="buttons">
-                <a href={ fmt.Sprintf("/%s?sort=created_at&order=desc", table) }
-                   class="button is-primary is-light"
-                   hx-get={ fmt.Sprintf("/%s?sort=created_at&order=desc", table) }
-                   hx-push-url="true"
-                   hx-target="#main-content"
-                   hx-swap="outerHTML">
-                    <span class="icon"><i class="fas fa-table"></i></span>
-                    <span>View Table</span>
-                </a>
-                <a href={ fmt.Sprintf("/%s/new", table) }
-                   class="button is-info is-light"
-                   hx-get={ fmt.Sprintf("/%s/new", table) }
-                   hx-push-url="true"
-                   hx-target="#main-content"
-                   hx-swap="outerHTML">
-                    <span class="icon"><i class="fas fa-plus"></i></span>
-                    <span>Add New</span>
-                </a>
-                <a href={ fmt.Sprintf("/%s/%d/edit", table, id) }
-                   class="button is-warning is-light"
-                   hx-get={ fmt.Sprintf("/%s/%d/edit", table, id) }
-                   hx-push-url="true"
-                   hx-target="#main-content"
-                   hx-swap="outerHTML">
-                    <span class="icon"><i class="fas fa-edit"></i></span>
-                    <span>Edit Record</span>
-                </a>
-            </div>
-    }
+templ CreateSuccess(msg, table string, id int) {
+	@SuccessMessage(msg) {
+		<div class="buttons">
+			<a
+				href={ fmt.Sprintf("/%s?sort=created_at&order=desc", table) }
+				class="button is-primary is-light"
+				hx-get={ fmt.Sprintf("/%s?sort=created_at&order=desc", table) }
+				hx-push-url="true"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+			>
+				<span class="icon"><i class="fas fa-table"></i></span>
+				<span>View Table</span>
+			</a>
+			<a
+				href={ fmt.Sprintf("/%s/new", table) }
+				class="button is-info is-light"
+				hx-get={ fmt.Sprintf("/%s/new", table) }
+				hx-push-url="true"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+			>
+				<span class="icon"><i class="fas fa-plus"></i></span>
+				<span>Add New</span>
+			</a>
+			<a
+				href={ fmt.Sprintf("/%s/%d/edit", table, id) }
+				class="button is-warning is-light"
+				hx-get={ fmt.Sprintf("/%s/%d/edit", table, id) }
+				hx-push-url="true"
+				hx-target="#main-content"
+				hx-swap="outerHTML"
+			>
+				<span class="icon"><i class="fas fa-edit"></i></span>
+				<span>Edit Record</span>
+			</a>
+		</div>
+	}
 }

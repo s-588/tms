@@ -96,3 +96,4 @@
 
 ## Search
  * Search across all tables **GET /search/{query}?limit={limit}&offset={offset}**
+ * Search across specific table **GET /{table}/search/{query}?limit={limit}&offset={offset}**

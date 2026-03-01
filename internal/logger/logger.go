@@ -1,4 +1,4 @@
-package main
+package logger
 
 import (
 	"fmt"
@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/s-588/tms/config"
+	"github.com/s-588/tms/internal/config"
 )
 
 // SetupSLog() is a function that configures default slog logger with given cfg.

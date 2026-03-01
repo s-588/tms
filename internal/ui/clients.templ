@@ -1,0 +1,853 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/checkbox"
+	"github.com/s-588/tms/internal/ui/components/table"
+
+	"github.com/s-588/tms/internal/ui/components/datepicker"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/icon"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/label"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/radio"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+	"github.com/s-588/tms/internal/ui/components/slider"
+	"strconv"
+	"time"
+)
+
+templ ClientsPage(clients []models.Client, page, totalPages int32, filter models.ClientFilter) {
+	@ClientsViewSheet(models.Client{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2">
+			@ClientsFilter(filter)
+			@clientsOperationsBar(Form{})
+		</div>
+		@ClientsTable(clients, page, totalPages, filter)
+	</div>
+}
+
+templ ClientsViewSheet(client models.Client, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "clients-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		<div id="clients-sheet-content">
+			@ClientsViewSheetContent(client, Form{})
+		</div>
+	}
+}
+
+templ ClientsViewSheetContent(client models.Client, errs Form) {
+	@sheet.Header() {
+		@sheet.Title() {
+			{ client.Name }
+		}
+		@sheet.Description() {
+			{ 
+				"Client ID: " + strconv.Itoa(int(client.ClientID)) + " | Score: " + strconv.Itoa(int(client.Score)) }
+		}
+	}
+	<div class="flex-1 p-4 space-y-6">
+		<form
+			id="client-edit-form"
+			class="space-y-6"
+			hx-put={ "clients/" + strconv.Itoa(int(client.ClientID)) }
+			hx-target="clients-table"
+			hx-push-url="true"
+		>
+			<!-- Contact Info - now editable with form inputs -->
+			<div class="space-y-2">
+				<h3 class="font-semibold text-lg">Contact Info</h3>
+				{{ nameField := errs["name"] }}
+				@form.Item() {
+					@form.Label(form.LabelProps{
+						For: "client-edit-name",
+					}) {
+						Name
+					}
+					if nameField.Err == nil {
+						@input.Input(input.Props{
+							ID:          "client-edit-name",
+							Name:        "name",
+							Type:        input.TypeText,
+							Value:       client.Name,
+							Placeholder: "John Doe",
+						})
+					} else {
+						@input.Input(input.Props{
+							ID:          "client-edit-name",
+							Name:        "name",
+							Type:        input.TypeText,
+							Value:       nameField.Value,
+							Placeholder: "John Doe",
+							HasError:    true,
+						})
+						@form.Description() {
+							Enter full client's name.
+						}
+						@form.Message(form.MessageProps{
+							Variant: form.MessageVariantError,
+						}) {
+							{ nameField.Err.Error() }
+						}
+					}
+				}
+				{{ emailField := errs["email"] }}
+				@form.Item() {
+					@form.Label(form.LabelProps{
+						For: "client-edit-email",
+					}) {
+						Email
+					}
+					if emailField.Err == nil {
+						@input.Input(input.Props{
+							ID:          "client-edit-email",
+							Name:        "email",
+							Type:        input.TypeEmail,
+							Value:       client.Email,
+							Placeholder: "john@example.com",
+						})
+					} else {
+						@input.Input(input.Props{
+							ID:          "client-edit-email",
+							Name:        "email",
+							Type:        input.TypeEmail,
+							Value:       emailField.Value,
+							Placeholder: "john@example.com",
+							HasError:    true,
+						})
+						@form.Description() {
+							Enter client's email address.
+						}
+						@form.Message(form.MessageProps{
+							Variant: form.MessageVariantError,
+						}) {
+							{ emailField.Err.Error() }
+						}
+					}
+					<!-- Email verification status (read-only, fixed original inverted logic) -->
+					<span class="text-xs block mt-1 { if client.EmailVerified { `text-green-600` } else { `text-amber-600` } }">
+						if client.EmailVerified {
+							"Verified" 
+						} else {
+							"Not Verified" 
+						}
+					</span>
+				}
+				{{ phoneField := errs["phone"] }}
+				@form.Item() {
+					@form.Label(form.LabelProps{
+						For: "client-edit-phone",
+					}) {
+						Phone
+					}
+					if phoneField.Err == nil {
+						@input.Input(input.Props{
+							ID:          "client-edit-phone",
+							Name:        "phone",
+							Type:        input.TypeTel,
+							Value:       client.Phone,
+							Placeholder: "+375293895655",
+						})
+					} else {
+						@input.Input(input.Props{
+							ID:          "client-edit-phone",
+							Name:        "phone",
+							Type:        input.TypeTel,
+							Value:       phoneField.Value,
+							Placeholder: "+375293895655",
+							HasError:    true,
+						})
+						@form.Description() {
+							Enter client's phone number.
+						}
+						@form.Message(form.MessageProps{
+							Variant: form.MessageVariantError,
+						}) {
+							{ phoneField.Err.Error() }
+						}
+					}
+				}
+			</div>
+			<!-- Client Score (kept as display - not changed to input because original was visual progress) -->
+			<div class="space-y-2">
+				<h3 class="font-semibold text-lg">Client Score</h3>
+				<div class="flex items-center gap-2">
+					<div class="w-24 bg-muted rounded-full h-2">
+						<div class="bg-primary h-2 rounded-full" style={ "width: " + strconv.Itoa(int(client.Score*10)) + "%" }></div>
+					</div>
+					<span class="text-sm font-medium">{ strconv.Itoa(int(client.Score)) }/10</span>
+				</div>
+			</div>
+			<!-- Recent Orders + timestamps (read-only, unchanged) -->
+			<div class="space-y-2">
+				if len(client.Orders) > 0 {
+					<h3 class="font-semibold text-lg">Recent Orders ({ len(client.Orders) })</h3>
+					<div class="space-y-2 max-h-48 overflow-y-auto">
+						for _, order := range client.Orders {
+							<div class="p-3 border rounded-lg bg-card/50">
+								<div class="flex justify-between items-start">
+									<div>
+										<span class="font-medium">{ fmt.Sprintf("Order #%d",order.OrderID) }</span>
+										<span class="text-xs text-muted-foreground ml-2">{ order.CreatedAt.Format(time.DateTime) }</span>
+									</div>
+									<span class="font-semibold">{ fmt.Sprintf("%s", order.TotalPrice.String()) }</span>
+								</div>
+							</div>
+						}
+					</div>
+				} else {
+					<div class="p-8 text-center text-muted-foreground">
+						<p>No orders yet</p>
+					</div>
+				}
+				<div class="pt-4 border-t space-y-2 text-xs text-muted-foreground">
+					<div>Created: { client.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { client.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+				</div>
+			</div>
+		</form>
+	</div>
+	@sheet.Footer() {
+		<div class="flex justify-between gap-2">
+			<!-- Delete -->
+			@button.Button(button.Props{
+				Variant: button.VariantDestructive,
+				Attributes: templ.Attributes{
+					"hx-delete":  "/clients/" + strconv.Itoa(int(client.ClientID)),
+					"hx-target":  "#clients-table",
+					"hx-confirm": "Are you sure you want to delete this client?",
+				},
+			}) {
+				Delete
+			}
+			<div class="flex gap-2">
+				<!-- Reset -->
+				@button.Button(button.Props{
+					Type:    button.TypeReset,
+					Variant: button.VariantGhost,
+					Attributes: templ.Attributes{
+						"form": "client-edit-form",
+					},
+				}) {
+					Reset
+				}
+				<!-- Update / Save -->
+				@button.Button(button.Props{
+					Type:    button.TypeSubmit,
+					Variant: button.VariantDefault,
+					Attributes: templ.Attributes{
+						"form": "client-edit-form",
+					},
+				}) {
+					Save Changes
+				}
+				<!-- Close -->
+				@sheet.Close(sheet.CloseProps{
+					For: "clients-sheet",
+				}) {
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+					}) {
+						Close
+					}
+				}
+			</div>
+		</div>
+	}
+}
+
+templ viewClientSheetButton(clientID int32) {
+	<!-- Trigger (updated text for clarity) -->
+	@sheet.Trigger(sheet.TriggerProps{
+		For: "clients-sheet",
+	}) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/clients/%d", clientID),
+				"hx-target": "#clients-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+templ ClientsTable(clients []models.Client, page, totalPages int32, filter models.ClientFilter) {
+	<div id="clients-table" class="overflow-x-auto">
+		@table.Table(table.Props{
+			ID: "clients-table",
+		}) {
+			@table.Header() {
+				@table.Row() {
+					@table.Head() {
+						ID
+					}
+					@table.Head() {
+						Name                 
+					}
+					@table.Head() {
+						Email                
+					}
+					@table.Head() {
+						EmailVerified        
+					}
+					@table.Head() {
+						Phone                
+					}
+					@table.Head() {
+						Score                
+					}
+					@table.Head() {
+						Operations
+					}
+				}
+			}
+			@table.Body() {
+				if len(clients) == 0 {
+					@table.Row() {
+						@table.Cell(table.CellProps{
+							Attributes: templ.Attributes{
+								"colspan": "7",
+							},
+						}) {
+							No clients found
+						}
+					}
+				} else {
+					for _, client := range clients {
+						@ClientRow(client)
+					}
+				}
+			}
+		}
+		@ClientsPagination(page, totalPages)
+	</div>
+}
+
+templ ClientRow(client models.Client) {
+	@table.Row() {
+		@table.Cell() {
+			{ client.ClientID }
+		}
+		@table.Cell() {
+			{ client.Name }
+		}
+		@table.Cell() {
+			{ client.Email }
+		}
+		@table.Cell() {
+			{ client.EmailVerified }
+		}
+		@table.Cell() {
+			{ client.Phone }
+		}
+		@table.Cell() {
+			{ client.Score }
+		}
+		@table.Cell() {
+			@viewClientSheetButton(client.ClientID)
+			{{ chckBoxID := fmt.Sprintf("chckID-%d", client.ClientID) }}
+			@checkbox.Checkbox(checkbox.Props{
+				Icon:  icon.Delete(),
+				Name:  "Delete",
+				Value: strconv.FormatInt(int64(client.ClientID), 10),
+				ID:    chckBoxID,
+			})
+		}
+	}
+}
+
+templ ClientsFilter(filter models.ClientFilter) {
+	@dialog.Dialog(dialog.Props{
+		ID: "clients-filter-dialog",
+	}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+			}) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{
+			Class: "max-w-xl",
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Filter clients
+				}
+			}
+			<!-- Basic Info -->
+			<div class="grid grid-cols-1 gap-4">
+				@form.Item() {
+					@form.Label(form.LabelProps{For: "filter-name"}) {
+						Name
+					}
+					@input.Input(input.Props{
+						ID:          "filter-name",
+						Name:        "name",
+						Type:        input.TypeText,
+						Value:       filter.Name.Value,
+						Placeholder: "John Doe",
+					})
+				}
+				@form.Item() {
+					@form.Label(form.LabelProps{For: "filter-email"}) {
+						Email
+					}
+					@input.Input(input.Props{
+						ID:          "filter-email",
+						Name:        "email",
+						Type:        input.TypeEmail,
+						Value:       filter.Email.Value,
+						Placeholder: "email@email.com",
+					})
+				}
+				@form.Item() {
+					@form.Label(form.LabelProps{For: "filter-phone"}) {
+						Phone
+					}
+					@input.Input(input.Props{
+						ID:          "filter-phone",
+						Name:        "phone",
+						Type:        input.TypeText,
+						Value:       filter.Phone.Value,
+						Placeholder: "+375293895655",
+					})
+				}
+			</div>
+			<!-- Email Verified -->
+			@form.Item() {
+				@form.Label(form.LabelProps{}) {
+					Email verified
+				}
+				<div class="flex gap-6">
+					<div class="flex items-center gap-2">
+						if !filter.Email.Set {
+							@radio.Radio(radio.Props{
+								ID:      "email-any",
+								Name:    "email_verified",
+								Value:   "",
+								Checked: true,
+							})
+							@label.Label(label.Props{For: "email-any"}) {
+								Any
+							}
+						} else {
+							@radio.Radio(radio.Props{
+								ID:    "email-any",
+								Name:  "email_verified",
+								Value: "",
+							})
+							@label.Label(label.Props{For: "email-any"}) {
+								Any
+							}
+						}
+					</div>
+					<div class="flex items-center gap-2">
+						@radio.Radio(radio.Props{
+							ID:      "email-false",
+							Name:    "email_verified",
+							Value:   "false",
+							Checked: filter.EmailVerified.Value,
+						})
+						@label.Label(label.Props{For: "email-false"}) {
+							Not verified
+						}
+					</div>
+					<div class="flex items-center gap-2">
+						@radio.Radio(radio.Props{
+							ID:      "email-true",
+							Name:    "email_verified",
+							Value:   "true",
+							Checked: filter.EmailVerified.Value,
+						})
+						@label.Label(label.Props{For: "email-true"}) {
+							Verified
+						}
+					</div>
+				</div>
+			}
+			<!-- Score Range -->
+			@form.Item() {
+				@form.Label(form.LabelProps{}) {
+					Score range
+				}
+				<div class="space-y-4">
+					<!-- Min -->
+					<div>
+						<div class="flex justify-between text-sm mb-1">
+							<span>Min</span>
+							@slider.Value(slider.ValueProps{
+								For: "filter-score-min",
+							})
+						</div>
+						@slider.Slider() {
+							@slider.Input(slider.InputProps{
+								ID:    "filter-score-min",
+								Name:  "score_min",
+								Value: filter.ScoreMin.Value,
+								Min:   0,
+								Max:   filter.ScoreMax.Value, // dynamic max
+								Step:  1,
+							})
+						}
+					</div>
+					<!-- Max -->
+					<div>
+						<div class="flex justify-between text-sm mb-1">
+							<span>Max</span>
+							@slider.Value(slider.ValueProps{
+								For: "filter-score-max",
+							})
+						</div>
+						@slider.Slider() {
+							@slider.Input(slider.InputProps{
+								ID:    "filter-score-max",
+								Name:  "score_max",
+								Value: filter.ScoreMax.Value,
+								Min:   filter.ScoreMin.Value, // dynamic min
+								Max:   100,
+								Step:  1,
+							})
+						}
+					</div>
+				</div>
+			}
+			<!-- Created Range -->
+			<div class="grid grid-cols-2 gap-4">
+				@form.Item() {
+					@form.Label(form.LabelProps{
+						For: "created-from",
+					}) {
+						Created from
+					}
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "created-from",
+						Name:  "created_from",
+						Value: filter.CreatedFrom.Value,
+					})
+				}
+				@form.Item() {
+					@form.Label(form.LabelProps{
+						For: "created-to",
+					}) {
+						Created to
+					}
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "created-to",
+						Name:  "created_to",
+						Value: filter.CreatedTo.Value,
+					})
+				}
+			</div>
+			@form.Item() {
+				@form.Label(form.LabelProps{
+					For: "filter-sort-by",
+				}) {
+					Sort by
+				}
+				@selectbox.SelectBox(selectbox.Props{
+					ID: "filter-sort-by",
+					Attributes: templ.Attributes{
+						"name":  "sort_by",
+						"value": filter.SortBy.Value,
+					},
+				}) {
+					@selectbox.Trigger() {
+						@selectbox.Value(selectbox.ValueProps{
+							Placeholder: "Select column",
+						})
+					}
+					@selectbox.Content() {
+						@selectbox.Group() {
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "",
+							}) {
+								Default
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "name",
+							}) {
+								Name
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "email",
+							}) {
+								Email
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "phone",
+							}) {
+								Phone
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "score",
+							}) {
+								Score
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "created_at",
+							}) {
+								Created at
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value: "updated_at",
+							}) {
+								Updated at
+							}
+						}
+					}
+				}
+			}
+			@dialog.Footer() {
+				<div class="flex justify-end gap-2">
+					<form
+						class="space-y-6"
+					>
+						@button.Button(button.Props{
+							Attributes: templ.Attributes{
+								"hx-get":    "/clients",
+								"hx-target": "#clients-table",
+							},
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</form>
+				</div>
+			}
+		}
+	}
+}
+
+templ clientsOperationsBar(addErrs Form) {
+	@ClientsAddDialog(addErrs)
+	@button.Button(button.Props{
+		Variant: button.VariantDestructive,
+		Attributes: templ.Attributes{
+			"hx-target":   "#modal-container",
+			"hx-push-url": "true",
+			"hx-delete":   "/clients",
+			"hx-include":  "#clients-table input[name=\"Delete\"]:checked",
+		},
+	}) {
+		Delete selected
+	}
+}
+
+templ ClientsAddDialog(errs Form) {
+	@dialog.Dialog(dialog.Props{
+		ID: "clients-add-dialog",
+	}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
+			}) {
+				Add client
+			}
+		}
+		@dialog.Content(dialog.ContentProps{
+			Class: "max-w-md",
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Add client
+				}
+				@dialog.Description() {
+					Add a new client. Click "Add" when your done.
+				}
+				@ClientsAddContent(errs)
+			}
+		}
+	}
+}
+
+templ ClientsAddContent(errs Form) {
+	<form
+		hx-post="clients"
+		hx-push-url="true"
+		id="clients-add-content"
+		class="flex gap-6 flex-col"
+	>
+		@form.Item(form.ItemProps{
+			Class: "gap-4",
+		}) {
+			@form.Label(form.LabelProps{
+				For: "client-add-name",
+			}) {
+				Name
+			}
+			{{ nameField := errs["name"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-name",
+				Name:        "name",
+				Value:       nameField.Value,
+				Type:        input.TypeText,
+				Placeholder: "John Doe",
+				HasError:    nameField.Err != nil,
+			})
+			@form.Description() {
+				Enter full client's name.
+			}
+			if nameField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
+				}) {
+					{ nameField.Err.Error() }
+				}
+			}
+		}
+		@form.Item() {
+			@form.Label(form.LabelProps{
+				For: "client-add-email",
+			}) {
+				Email
+			}
+			{{ emailField := errs["email"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-email",
+				Type:        input.TypeEmail,
+				Name:        "email",
+				Value:       emailField.Value,
+				Placeholder: "John Doe",
+				HasError:    emailField.Err != nil,
+			})
+			@form.Description() {
+				Enter client's email for notifications.
+			}
+			if emailField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
+				}) {
+					{ emailField.Err.Error() }
+				}
+			}
+		}
+		@form.Item() {
+			@form.Label(form.LabelProps{
+				For: "client-add-phone",
+			}) {
+				Phone
+			}
+			{{ phoneField := errs["phone"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-phone",
+				Type:        input.TypeTel,
+				Name:        "email",
+				Value:       phoneField.Value,
+				Placeholder: "+375293895655",
+				HasError:    phoneField.Err != nil,
+			})
+			@form.Description() {
+				Enter client's phone number.
+			}
+			if phoneField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
+				}) {
+					{ phoneField.Err.Error() }
+				}
+			}
+		}
+		@button.Button(button.Props{
+			Type:    button.TypeSubmit,
+			Variant: button.VariantDefault,
+		}) {
+			Add
+		}
+	</form>
+}
+
+templ ClientsPagination(page, totalPages int32) {
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#clients-table",
+						"hx-push-url": "true",
+						"hx-get":      fmt.Sprintf("/clients?page=%d", p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			// First page with ellipsis if needed
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#clients-table",
+							"hx-push-url": "true",
+							"hx-get":      "/clients?page=1",
+						},
+					}) {
+						1
+					}
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+			}
+			// Visible pages
+			for _, page := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#clients-table",
+							"hx-push-url": "true",
+							"hx-get":      fmt.Sprintf("/clients?page=%d", page),
+						},
+						IsActive: page == p.CurrentPage,
+					}) {
+						{ fmt.Sprint(page) }
+					}
+				}
+			}
+			// Last page with ellipsis if needed
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#clients-table",
+							"hx-push-url": "true",
+							"hx-get":      fmt.Sprintf("/clients?page=%d", p.TotalPages),
+						},
+					}) {
+						{ fmt.Sprint(p.TotalPages) }
+					}
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#clients-table",
+						"hx-push-url": "true",
+						"hx-get":      fmt.Sprintf("/clients?page=%d", p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}

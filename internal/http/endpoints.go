@@ -14,10 +14,10 @@ func (s *Server) setClientEndpoints() {
 	s.mux.HandleFunc("GET /clients/tage", s.Handler.GetClients)
 	s.mux.HandleFunc("GET /clients/new", s.Handler.NewClientPageHandler)
 	s.mux.HandleFunc("GET /clients/{id}/edit", s.Handler.EditClientPageHandler)
-	s.mux.HandleFunc("GET /clients/{id}", s.Handler.GetClientHandler)
+	// s.mux.HandleFunc("GET /clients/{id}", s.Handler.GetClientHandler)
 	s.mux.HandleFunc("POST /clients", s.Handler.CreateClientHandler)
 	s.mux.HandleFunc("DELETE /clients/{id}", s.Handler.DeleteClient)
-	s.mux.HandleFunc("PUT /clients/{id}", s.Handler.UpdateClient)
+	// s.mux.HandleFunc("PUT /clients/{id}", s.Handler.UpdateClient)
 	s.mux.HandleFunc("GET /clients/{id}/orders", s.Handler.GetClientOrders)
 }
 

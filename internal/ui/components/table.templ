@@ -2,7 +2,6 @@ package components
 
 import (
 	"fmt"
-	"github.com/s-588/tms/models"
 	"strings"
 	"time"
 )
@@ -70,6 +69,8 @@ templ ActionButtons(entityType string, id int32, hasDetailView bool) {
 }
 
 // Reusable operations bar
+/*
+
 templ OperationsBar(entityType string, singularName string, filter models.Filter) {
 	<div class="level mb-5">
 		<div class="level-left">
@@ -110,6 +111,8 @@ templ OperationsBar(entityType string, singularName string, filter models.Filter
 		</div>
 	</div>
 }
+
+*/
 
 // Reusable empty state component
 templ EmptyState(iconClass, message string) {
