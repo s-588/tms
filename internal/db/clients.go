@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/s-588/tms/cmd/models"
@@ -44,15 +46,10 @@ func (db DB) GetClients(ctx context.Context, page int32, filter models.ClientFil
 		EmailFilter:         ToStringPtr(filter.Email),
 		PhoneFilter:         ToStringPtr(filter.Phone),
 		EmailVerifiedFilter: ToBoolPtr(filter.EmailVerified),
-		ScoreMinFilter:      ToInt16PtrFromInt(filter.ScoreMin),
-		ScoreMaxFilter:      ToInt16PtrFromInt(filter.ScoreMax),
-		CreatedFromFilter:   ToPgTypeTimestamptz(filter.CreatedFrom),
-		CreatedToFilter:     ToPgTypeTimestamptz(filter.CreatedTo),
-		UpdatedFromFilter:   ToPgTypeTimestamptz(filter.UpdatedFrom),
-		UpdatedToFilter:     ToPgTypeTimestamptz(filter.UpdatedTo),
-		SortOrder:           ToStringPtr(filter.SortOrder),
-		SortBy:              ToStringPtr(filter.SortBy),
+		SortOrder:           strings.ToUpper(filter.SortOrder.Value),
+		SortBy:              filter.SortBy.Value,
 	}
+	slog.Debug("retrieving clients", "args", arg)
 	rows, err := db.queries.GetClients(ctx, arg)
 	if err != nil {
 		return nil, 0, err
@@ -67,14 +64,15 @@ func (db DB) GetClients(ctx context.Context, page int32, filter models.ClientFil
 }
 
 func (db DB) UpdateClient(ctx context.Context, clientID int,
-	name, email, phone models.Optional[string],
+	name, email, phone string,
 ) error {
 	arg := generated.UpdateClientParams{
 		ClientID: int32(clientID),
-		Name:     ToStringPtr(name),
-		Email:    ToStringPtr(email),
-		Phone:    ToStringPtr(phone),
+		Name:     name,
+		Email:    email,
+		Phone:    phone,
 	}
+	slog.Debug("updating clients", "arg",arg)
 	return db.queries.UpdateClient(ctx, arg)
 }
 

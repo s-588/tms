@@ -8,6 +8,8 @@ import "github.com/s-588/tms/internal/ui/components/popover"
 import "github.com/s-588/tms/internal/ui/components/datepicker"
 import "github.com/s-588/tms/internal/ui/components/calendar"
 import "github.com/s-588/tms/internal/ui/components/slider"
+import "github.com/s-588/tms/internal/ui/components/toast"
+import "github.com/s-588/tms/internal/ui/components/selectbox"
 
 templ Index() {
 	@Head()
@@ -24,19 +26,38 @@ templ Head() {
 			href="/static/css/style.css"
 		/>
 		<script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.8/dist/htmx.min.js"></script>
+		@toast.Script()
 		@sidebar.Script()
 		@dialog.Script()
 		@popover.Script()
 		@datepicker.Script()
 		@calendar.Script()
 		@slider.Script()
+		@selectbox.Script()
 	</head>
 }
 
 templ Body() {
 	<body>
 		@PageSidebar()
+		<div id="toast"></div>
 	</body>
+}
+
+templ Toast(msgType, title, msg string) {
+	@toast.Toast(toast.Props{
+		ID:    "toast",
+		Title: title,
+		Attributes: templ.Attributes{
+			"hx-swap-oob": "true",
+		},
+		Variant:       toast.Variant(msgType),
+		Position:      toast.PositionBottomRight,
+		Description:   msg,
+		Dismissible:   true,
+		ShowIndicator: true,
+		Icon:          true,
+	})
 }
 
 templ PageSidebar() {
@@ -67,7 +88,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/clients",
+									"hx-get":      "/clients/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -79,7 +100,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/employees",
+									"hx-get":      "/employees/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -91,7 +112,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/orders",
+									"hx-get":      "/orders/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -103,7 +124,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/prices",
+									"hx-get":      "/prices/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -115,7 +136,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/transports",
+									"hx-get":      "/transports/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -127,7 +148,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/nodes",
+									"hx-get":      "/nodes/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -139,7 +160,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/insurances",
+									"hx-get":      "/insurances/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},
@@ -151,7 +172,7 @@ templ PageSidebar() {
 						@sidebar.MenuItem() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
-									"hx-get":      "/inspections",
+									"hx-get":      "/inspections/page",
 									"hx-target":   "#main",
 									"hx-push-url": "true",
 								},

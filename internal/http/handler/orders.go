@@ -106,13 +106,13 @@ func (h Handler) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id", "error", err)
-		responseError(w, r, http.StatusBadRequest, "incorrect order id")
+		// responseError(w, r, http.StatusBadRequest, "incorrect order id")
 		return
 	}
 	// order, err := h.DB.GetOrderByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve order", "error", err, "id", id)
-		responseError(w, r, http.StatusNotFound, "order not found")
+		// responseError(w, r, http.StatusNotFound, "order not found")
 		return
 	}
 	// ui.OrderDetail(order).Render(r.Context(), w)
@@ -143,7 +143,7 @@ func (h Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		slog.Error("can't create order", "error", err)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+		// responseError(w, r, http.StatusInternalServerError, "something went wrong")
 		return
 	}
 
@@ -289,12 +289,12 @@ func (h Handler) DeleteOrderHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id", "error", err)
-		responseError(w, r, http.StatusBadRequest, "incorrect order id")
+		// responseError(w, r, http.StatusBadRequest, "incorrect order id")
 		return
 	}
 	if err := h.DB.SoftDeleteOrder(r.Context(), id); err != nil {
 		slog.Error("can't delete order", "error", err, "id", id)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+		// responseError(w, r, http.StatusInternalServerError, "something went wrong")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

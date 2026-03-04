@@ -85,14 +85,14 @@ func (h Handler) GetEmployeesHandler(w http.ResponseWriter, r *http.Request) {
 
 func (h Handler) BulkDeleteEmployeesHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		responseError(w, r, http.StatusBadRequest, "invalid form data")
+		ui.Toast("error", "Can't delete employees", "Can't parse form").Render(r.Context(), w)
 		return
 	}
 
 	// Get selected IDs from form
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		responseError(w, r, http.StatusBadRequest, "no employees selected")
+		ui.Toast("error", "Can't delete employees", "No employees selected").Render(r.Context(), w)
 		return
 	}
 
@@ -175,7 +175,7 @@ func (h Handler) ExportEmployeesHandler(w http.ResponseWriter, r *http.Request) 
 
 func (h Handler) CreateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		responseError(w, r, http.StatusBadRequest, "invalid form data")
+		// responseError(w, r, http.StatusBadRequest, "invalid form data")
 		return
 	}
 
@@ -183,7 +183,7 @@ func (h Handler) CreateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	employee, err := h.DB.CreateEmployee(r.Context(), emp)
 	if err != nil {
 		slog.Error("can't create employee", "error", err)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+		// responseError(w, r, http.StatusInternalServerError, "something went wrong")
 		return
 	}
 
@@ -265,13 +265,13 @@ func (h Handler) DeleteEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		responseError(w, r, http.StatusBadRequest, "incorrect employee id")
+		// responseError(w, r, http.StatusBadRequest, "incorrect employee id")
 		return
 	}
 
 	if err := h.DB.SoftDeleteEmployee(r.Context(), id); err != nil {
 		slog.Error("can't delete employee", "error", err, "id", id)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+		// responseError(w, r, http.StatusInternalServerError, "something went wrong")
 		return
 	}
 
@@ -282,7 +282,7 @@ func (h Handler) UpdateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		responseError(w, r, http.StatusBadRequest, "incorrect employee id")
+		// responseError(w, r, http.StatusBadRequest, "incorrect employee id")
 		return
 	}
 
@@ -304,7 +304,7 @@ func (h Handler) UpdateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 		args.Status, args.JobTitle, args.HireDate, args.Salary, args.LicenseIssued,
 		args.LicenseExpiration); err != nil {
 		slog.Error("can't update employee", "error", err, "id", id)
-		responseError(w, r, http.StatusInternalServerError, "something went wrong")
+		// responseError(w, r, http.StatusInternalServerError, "something went wrong")
 		return
 	}
 

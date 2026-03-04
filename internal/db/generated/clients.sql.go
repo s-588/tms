@@ -189,7 +189,7 @@ func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams
 
 const getClients = `-- name: GetClients :many
 SELECT client_id, name, email, email_verified, email_token, email_token_expiration, phone, score, created_at, updated_at, deleted_at,
-       (count(*) OVER())/20 AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM clients
 WHERE deleted_at IS NULL
   AND ($1::text IS NULL OR name ILIKE '%' || $1::text || '%')
@@ -198,13 +198,9 @@ WHERE deleted_at IS NULL
   AND ($4::boolean IS NULL OR email_verified = $4::boolean)
   AND ($5::smallint IS NULL OR score >= $5::smallint)
   AND ($6::smallint IS NULL OR score <= $6::smallint)
-  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
-  AND ($8::timestamptz IS NULL OR created_at <= $8::timestamptz)
-  AND ($9::timestamptz IS NULL OR updated_at >= $9::timestamptz)
-  AND ($10::timestamptz IS NULL OR updated_at <= $10::timestamptz)
 ORDER BY
-    CASE WHEN $11::text = 'ASC' THEN
-        CASE $12::text
+    CASE WHEN $7::text = 'ASC' THEN
+        CASE $8::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -214,8 +210,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $11::text = 'DESC' THEN
-        CASE $12::text
+    CASE WHEN $7::text = 'DESC' THEN
+        CASE $8::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -225,7 +221,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT 20 OFFSET 20*($13::integer-1)
+LIMIT 20 OFFSET 20*($9::integer-1)
 `
 
 type GetClientsParams struct {
@@ -235,12 +231,8 @@ type GetClientsParams struct {
 	EmailVerifiedFilter *bool
 	ScoreMinFilter      *int16
 	ScoreMaxFilter      *int16
-	CreatedFromFilter   pgtype.Timestamptz
-	CreatedToFilter     pgtype.Timestamptz
-	UpdatedFromFilter   pgtype.Timestamptz
-	UpdatedToFilter     pgtype.Timestamptz
-	SortOrder           *string
-	SortBy              *string
+	SortOrder           string
+	SortBy              string
 	Page                int32
 }
 
@@ -267,10 +259,6 @@ func (q *Queries) GetClients(ctx context.Context, arg GetClientsParams) ([]GetCl
 		arg.EmailVerifiedFilter,
 		arg.ScoreMinFilter,
 		arg.ScoreMaxFilter,
-		arg.CreatedFromFilter,
-		arg.CreatedToFilter,
-		arg.UpdatedFromFilter,
-		arg.UpdatedToFilter,
 		arg.SortOrder,
 		arg.SortBy,
 		arg.Page,
@@ -355,17 +343,17 @@ func (q *Queries) SoftDeleteClient(ctx context.Context, clientID int32) error {
 const updateClient = `-- name: UpdateClient :exec
 UPDATE clients
 SET
-    name = COALESCE($1::text, name),
-    email = COALESCE($2::text, email),
-    phone = COALESCE($3::text, phone),
+    name = $1::text,
+    email = $2::text,
+    phone = $3::text,
     updated_at = NOW()
 WHERE client_id = $4
 `
 
 type UpdateClientParams struct {
-	Name     *string
-	Email    *string
-	Phone    *string
+	Name     string
+	Email    string
+	Phone    string
 	ClientID int32
 }
 

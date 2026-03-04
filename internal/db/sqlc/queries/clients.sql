@@ -34,7 +34,7 @@ LIMIT $1 OFFSET $2;
 
 -- name: GetClients :many
 SELECT *,
-       (count(*) OVER())/20 AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM clients
 WHERE deleted_at IS NULL
   AND (sqlc.narg('name_filter')::text IS NULL OR name ILIKE '%' || sqlc.narg('name_filter')::text || '%')
@@ -43,13 +43,9 @@ WHERE deleted_at IS NULL
   AND (sqlc.narg('email_verified_filter')::boolean IS NULL OR email_verified = sqlc.narg('email_verified_filter')::boolean)
   AND (sqlc.narg('score_min_filter')::smallint IS NULL OR score >= sqlc.narg('score_min_filter')::smallint)
   AND (sqlc.narg('score_max_filter')::smallint IS NULL OR score <= sqlc.narg('score_max_filter')::smallint)
-  AND (sqlc.narg('created_from_filter')::timestamptz IS NULL OR created_at >= sqlc.narg('created_from_filter')::timestamptz)
-  AND (sqlc.narg('created_to_filter')::timestamptz IS NULL OR created_at <= sqlc.narg('created_to_filter')::timestamptz)
-  AND (sqlc.narg('updated_from_filter')::timestamptz IS NULL OR updated_at >= sqlc.narg('updated_from_filter')::timestamptz)
-  AND (sqlc.narg('updated_to_filter')::timestamptz IS NULL OR updated_at <= sqlc.narg('updated_to_filter')::timestamptz)
 ORDER BY
-    CASE WHEN sqlc.narg('sort_order')::text = 'ASC' THEN
-        CASE sqlc.narg('sort_by')::text
+    CASE WHEN sqlc.arg('sort_order')::text = 'ASC' THEN
+        CASE sqlc.arg('sort_by')::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -59,8 +55,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN sqlc.narg('sort_order')::text = 'DESC' THEN
-        CASE sqlc.narg('sort_by')::text
+    CASE WHEN sqlc.arg('sort_order')::text = 'DESC' THEN
+        CASE sqlc.arg('sort_by')::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -91,9 +87,9 @@ UPDATE clients SET deleted_at = NOW() WHERE client_id = $1;
 -- name: UpdateClient :exec
 UPDATE clients
 SET
-    name = COALESCE(sqlc.narg('name')::text, name),
-    email = COALESCE(sqlc.narg('email')::text, email),
-    phone = COALESCE(sqlc.narg('phone')::text, phone),
+    name = sqlc.arg('name')::text,
+    email = sqlc.arg('email')::text,
+    phone = sqlc.arg('phone')::text,
     updated_at = NOW()
 WHERE client_id = sqlc.arg('client_id');
 

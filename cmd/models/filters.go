@@ -37,8 +37,6 @@ type ClientFilter struct {
 	Email         Optional[string]
 	Phone         Optional[string]
 	EmailVerified Optional[bool]
-	ScoreMin      Optional[int]
-	ScoreMax      Optional[int]
 	CreatedFrom   Optional[time.Time]
 	CreatedTo     Optional[time.Time]
 	UpdatedFrom   Optional[time.Time]
@@ -74,12 +72,6 @@ func (f ClientFilter) ToQueryString() string {
 	}
 	if f.EmailVerified.Set {
 		params = append(params, "email_verified="+strconv.FormatBool(f.EmailVerified.Value))
-	}
-	if f.ScoreMin.Set {
-		params = append(params, "score_min="+strconv.Itoa(f.ScoreMin.Value))
-	}
-	if f.ScoreMax.Set {
-		params = append(params, "score_max="+strconv.Itoa(f.ScoreMax.Value))
 	}
 	// time fields omitted for brevity – same pattern
 	return strings.Join(params, "&")

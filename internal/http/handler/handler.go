@@ -6,7 +6,7 @@ import (
 	"strconv"
 
 	"github.com/s-588/tms/internal/db"
-	"github.com/s-588/tms/internal/ui"
+	
 )
 
 type Handler struct {
@@ -44,9 +44,4 @@ func parsePagination(r *http.Request) int32 {
 		}
 		return int32(p)
 	}
-}
-
-func responseError(w http.ResponseWriter, r *http.Request, code int, msg string) {
-	w.WriteHeader(code)
-	ui.ErrorMessage(msg).Render(r.Context(), w)
 }
