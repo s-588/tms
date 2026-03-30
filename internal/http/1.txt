@@ -1,0 +1,4165 @@
+package handler
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/mail"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/nyaruka/phonenumbers"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+)
+
+// GetClientsPage just retrieves clients from database and render clients page.
+func (h Handler) GetClientsPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+
+	filter := parseClientFilters(r)
+
+	clients, total, err := h.DB.GetClients(r.Context(), 1, models.ClientFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of clients", "error", err)
+		ui.Toast("error", "Can't render clients page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("clients page", "clients", clients)
+	ui.ClientsPage(clients, page, total, filter).Render(r.Context(), w)
+}
+
+// GetClients parses id from path; page and models.ClientFilter from
+// path values, retrieve clients from database using filters and pagination
+// and return ClientsTable form.
+func (h Handler) GetClients(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+
+	filter := parseClientFilters(r)
+
+	clients, total, err := h.DB.GetClients(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of clients", "error", err)
+		ui.Toast("error", "Can't get clients data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve clients from database", "filter", filter, "page", page,
+		"total pages", total, "total clients", len(clients))
+	ui.ClientsTable(clients, page, total, filter, true).Render(r.Context(), w)
+}
+
+// parseClientFilters function parse models.ClientFilter from request url values
+// and return it.
+func parseClientFilters(r *http.Request) models.ClientFilter {
+	filter := models.ClientFilter{}
+	q := r.URL.Query()
+
+	if err := checkClientName(q.Get("name")); q.Has("name") && err == nil {
+		filter.Name.SetValue(q.Get("name"))
+	}
+	if err := checkEmail(q.Get("email")); q.Has("email") && err == nil {
+		filter.Email.SetValue(q.Get("email"))
+	}
+	if phone,err := checkPhone(q.Get("phone")); q.Has("phone") && err == nil {
+		filter.Phone.SetValue(phone)
+	}
+	if q.Has("email_verified") {
+		emailVerifiedStr := q.Get("email_verified")
+		switch emailVerifiedStr {
+		case "true":
+			filter.EmailVerified.SetValue(true)
+		case "false":
+			filter.EmailVerified.SetValue(false)
+		}
+	}
+	if q.Has("sort") {
+		sortBy := q.Get("sort")
+		filter.SortBy.SetValue(sortBy)
+		sortOrder := "desc"
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		sortBy := "created_at"
+		filter.SortBy.SetValue(sortBy)
+		sortOrder := "asc"
+		filter.SortOrder.SetValue(sortOrder)
+	}
+
+	return filter
+
+}
+
+// GetClientHandler handler parse id from path, retrieve client from database
+// and return ClientDetails form to client.
+func (h Handler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get client data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	client, err := h.DB.GetClient(r.Context(), id)
+	if err != nil {
+		slog.Error("can't retrieve client", "error", err, "id", id)
+		ui.Toast("error", "Can't get client data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve client", "client", client)
+	ui.ClientsViewSheetContent(client, ui.Form{}).Render(r.Context(), w)
+}
+
+// CreateClientHandler handler parse models.Client values from http form,
+// trying to create client and return result. CreateSuccess if there is no errors
+// and ClientsCreateForm with errors if user entered incorrect data.
+func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't get parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	// TODO: add token generation and insertion
+	hasError, form := parseClientForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding client", "data", form)
+		ui.ClientsAddContent(form, true).Render(r.Context(), w)
+		return
+	}
+
+	_, err := h.DB.CreateClient(r.Context(), db.CreateClientArgs{
+		Name:  form["name"].Value,
+		Email: form["email"].Value,
+		Phone: form["phone"].Value,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrDuplicateEmail):
+			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrDuplicatePhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		default:
+			slog.Error("can't create client", "error", err)
+			ui.Toast("error", "Can't create user", "Something went wrong").Render(r.Context(), w)
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		}
+	}
+
+	slog.Debug("adding new client", "data", form)
+	ui.Toast("success", "User created", fmt.Sprintf("User %s successfully created", form["name"].Value)).Render(r.Context(), w)
+	ui.ClientsAddContent(ui.Form{}, true).Render(r.Context(), w)
+	h.GetClients(w, r)
+}
+
+func parseClientForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+	name := r.PostForm.Get("name")
+	form["name"] = ui.FormField{
+		Value: name,
+	}
+	if err = checkClientName(name); err != nil {
+		form["name"] = ui.FormField{
+			Value: name,
+			Err:   err,
+		}
+	}
+
+	email := r.PostForm.Get("email")
+	form["email"] = ui.FormField{
+		Value: email,
+	}
+	if err = checkEmail(email); err != nil {
+		form["email"] = ui.FormField{
+			Value: email,
+			Err:   err,
+		}
+	}
+
+	phone := r.PostForm.Get("phone")
+	form["phone"] = ui.FormField{
+		Value: phone,
+	}
+	if p, e := checkPhone(phone); e != nil {
+		err = e
+		form["phone"] = ui.FormField{
+			Value: p,
+			Err:   err,
+		}
+	}
+
+	return
+}
+
+func checkClientName(name string) error {
+	if utf8.RuneCountInString(name) <= 3 {
+		return errors.New("client name must be at least 3 characters")
+	}
+	return nil
+}
+
+// checkEmail validates email format using net/mail.ParseAddress
+func checkEmail(email string) error {
+	if _, err := mail.ParseAddress(email); err != nil {
+		return errors.New("incorrect email format")
+	}
+	return nil
+}
+
+// checkPhone validates phone format using a regex
+func checkPhone(phone string) (string, error) {
+	s := strings.Builder{}
+	for _, ch := range phone{
+		if unicode.IsDigit(ch){
+			s.WriteRune(ch)
+		}
+	}
+	p, err := phonenumbers.Parse(s.String(), "BY")
+	if err != nil {
+		slog.Debug("not a phone number", "phone", phone, "error", err)
+		return phone, errors.New("not a phone")
+	}
+	
+	if !phonenumbers.IsValidNumberForRegion(p,"BY"){
+		slog.Debug("incorrect phone format", "phone", p.String())
+		return phone, errors.New("incorrect phone format for Belarus")
+	}
+
+	return p.String(), nil
+}
+
+// DeleteClient handler process soft delete of client with id parsed from path.
+func (h Handler) DeleteClient(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteClient(r.Context(), id); err != nil {
+		slog.Error("can't delete client", "error", err, "id", id)
+		ui.Toast("error", "Can't delete client", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting client", "clientID", id)
+	ui.Toast("success", "Deleted", "Client successfully deleted")
+	h.GetClients(w, r)
+}
+
+// BulkDeleteClients handler soft delete multiple clients with ids parsed from
+// http form. Return ClientsTable without deleted records.
+func (h Handler) BulkDeleteClients(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete clients", "No clients selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.ParseInt(idStr, 10, 32)
+		if err != nil {
+			slog.Error("can't parse client id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteClients(r.Context(), ids); err != nil {
+		slog.Error("can't delete clients batch", "error", err, "batch", ids)
+	}
+
+	h.GetClients(w, r)
+}
+
+// UpdateClient handler parse id from path and client's new values from form.
+// Return ClientDetail form with new values.
+func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect client ID")
+		return
+	}
+
+	// TODO: process a not existing client error
+	existing, err := h.DB.GetClient(r.Context(), id)
+	if err != nil {
+		slog.Error("can't recieve client", "error", err)
+		ui.Toast("error", "Internal error", "Something wen wrong")
+		h.GetClientHandler(w,r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format")
+		h.GetClientHandler(w,r)
+		return
+	}
+
+	err, form := parseClientForm(r)
+	if err != nil {
+		slog.Debug("can't update clients", "form", form, "err", err)
+		ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.UpdateClient(r.Context(), db.UpdateClientArgs{
+		ClientID: id,
+		Name:     form["name"].Value,
+		Email:    form["email"].Value,
+		Phone:    form["phone"].Value,
+	}); err != nil {
+		switch {
+		case errors.Is(err, db.ErrDuplicateEmail):
+			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrDuplicatePhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrIncorrectPhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("incorrect phone format")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		default:
+			slog.Error("can't update client", "error", err, "id", id)
+			ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+			h.GetClientHandler(w,r)
+			return
+		}
+	}
+
+	slog.Debug("update client", "form data", form)
+	ui.Toast("success", "Client updated", "Client successfully updated").Render(r.Context(),w)
+	h.GetClientHandler(w, r)
+	h.GetClients(w, r)
+}
+
+// VerifyEmail handler retrieve token from path and check if it exists in the
+// database, if it is then email is verified.
+func (h Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		ui.Toast("error", "Can't verify email", "Token is required").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.VerifyClientEmail(r.Context(), token); err != nil {
+		slog.Error("can't verify email", "error", err, "token", token)
+		ui.Toast("error", "Can't verify email", "Expire or invalid email").Render(r.Context(), w)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Email verified successfully"))
+}
+
+// GetClientOrders handler parse id from path; order filter, limit and offset
+// from url values and retrieve all client orders with filters and pagination.
+// Return OrdersTable.
+func (h Handler) GetClientOrders(w http.ResponseWriter, r *http.Request) {
+	// id, err := parseIDFromReq(r)
+	// if err != nil {
+	// 	slog.Error("can't parse id from URL path", "error", err)
+	// 	responseError(w, r, http.StatusBadRequest, "incorrect client id")
+	// 	return
+	// }
+
+	// limit, offset := parsePagination(r)
+	// orders, total, err := h.DB.GetClientOrders(r.Context(), id, limit, offset)
+	// if err != nil {
+	// 	slog.Error("can't retrieve client orders", "error", err, "client_id", id)
+	// 	responseError(w, r, http.StatusInternalServerError, "something went wrong")
+	// 	return
+	// }
+	//
+	// filter := parseOrderFilter(r)
+
+	// ui.OrdersTable(orders, limit, offset, int(total), filter, []models.Transport{}).Render(r.Context(), w)
+}
+
+// ExportClientsHandler generate export file and send it to user.
+// TODO: implement
+func (h Handler) ExportClientsHandler(w http.ResponseWriter, r *http.Request) {
+	// // Parse filter parameters
+	// filter := ui.ClientFilter{
+	// 	Name:          r.URL.Query().Get("name"),
+	// 	Email:         r.URL.Query().Get("email"),
+	// 	Phone:         r.URL.Query().Get("phone"),
+	// 	EmailVerified: r.URL.Query().Get("email_verified"),
+	// 	CreatedFrom:   r.URL.Query().Get("created_from"),
+	// 	CreatedTo:     r.URL.Query().Get("created_to"),
+	// 	UpdatedFrom:   r.URL.Query().Get("updated_from"),
+	// 	UpdatedTo:     r.URL.Query().Get("updated_to"),
+	// 	SortBy:        r.URL.Query().Get("sort"),
+	// 	SortOrder:     r.URL.Query().Get("order"),
+	// }
+	//
+	// // Get all clients with filters (no pagination for export)
+	// clients, err := h.DB.GetClients(r.Context(), filter)
+	// if err != nil {
+	// 	slog.Error("can't retrieve clients for export", "error", err)
+	// 	responseError(w, r, http.StatusInternalServerError, "something went wrong")
+	// 	return
+	// }
+	//
+	// // Set CSV headers
+	// w.Header().Set("Content-Type", "text/csv")
+	// w.Header().Set("Content-Disposition", "attachment;filename=clients.csv")
+	//
+	// // Write CSV header
+	// fmt.Fprintln(w, "ID,Name,Email,Email Verified,Phone,Created At,Updated At")
+	//
+	// // Write data
+	// for _, client := range clients {
+	// 	emailVerified := "false"
+	// 	if client.EmailVerified {
+	// 		emailVerified = "true"
+	// 	}
+	// 	fmt.Fprintf(w, "%d,%s,%s,%s,%s,%s,%s\n",
+	// 		client.ClientID,
+	// 		escapeCSV(client.Name),
+	// 		escapeCSV(client.Email),
+	// 		emailVerified,
+	// 		escapeCSV(client.Phone),
+	// 		client.CreatedAt.Format(time.RFC3339),
+	// 		client.UpdatedAt.Format(time.RFC3339),
+	// 	)
+	// }
+}
+package handler
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"time"
+
+	gotemplatedocx "github.com/JJJJJJack/go-template-docx"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/shopspring/decimal"
+	"github.com/xuri/excelize/v2"
+)
+
+type ReportData struct {
+	Day          string `json:"day"`
+	Month        string `json:"month"`
+	Year         string `json:"year"`
+	OrderID      string `json:"orderID"`
+	User         string `json:"user"`         
+	SourceNode         string `json:"source"`         
+	DestinationNode         string `json:"destination"`         
+	Weight       string `json:"weight"`       
+	Price        string `json:"price"`        
+	PriceWithNDS string `json:"priceWithNDS"` 
+	NDS          string `json:"nds"`          
+}
+
+var russianMonths = []string{
+	"", "января", "февраля", "марта", "апреля", "мая", "июня",
+	"июля", "августа", "сентября", "октября", "ноября", "декабря",
+}
+
+func (h Handler) buildReportData(ctx context.Context, orderID int32) (ReportData, error) {
+	order, err := h.DB.GetOrderByID(ctx, orderID)
+	if err != nil {
+		return ReportData{}, fmt.Errorf("заказ не найден: %w", err)
+	}
+
+	data := ReportData{
+		OrderID: fmt.Sprintf("%d", order.OrderID),
+		Day:     fmt.Sprintf("%d", order.CreatedAt.Day()),
+		Month:   russianMonths[int(order.CreatedAt.Month())],
+		Year:    fmt.Sprintf("%d", order.CreatedAt.Year()),
+		User:    order.ClientName, // Заказчик в акте
+		Weight:  fmt.Sprintf("%d", order.Weight),
+		SourceNode: order.NodeStartName,
+		DestinationNode: order.NodeEndName,
+	}
+
+	// Расчёт НДС 20%
+	price := order.TotalPrice
+	nds := price.Mul(decimal.NewFromInt(20)).Div(decimal.NewFromInt(100)).Round(2)
+	priceWithNDS := price.Add(nds).Round(2)
+
+	data.Price = price.StringFixed(2)
+	data.NDS = nds.StringFixed(2)
+	data.PriceWithNDS = priceWithNDS.StringFixed(2)
+
+	return data, nil
+}
+
+func generateBytes(templatePath string, data ReportData) ([]byte, error) {
+	tmpl, err := gotemplatedocx.NewDocxTemplateFromFilename(templatePath)
+	if err != nil {
+		return nil, fmt.Errorf("не удалось загрузить шаблон %s: %w", templatePath, err)
+	}
+
+	if err := tmpl.Apply(data); err != nil {
+		return nil, fmt.Errorf("не удалось применить данные: %w", err)
+	}
+
+	return tmpl.Bytes(), nil
+}
+
+func (h Handler) DownloadContract(w http.ResponseWriter, r *http.Request) {
+	orderID, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't get id from request", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.buildReportData(r.Context(), orderID)
+	if err != nil {
+		slog.Error("failed to get order for contract", "orderID", orderID, "error", err)
+		http.Error(w, "Заказ не найден", http.StatusNotFound)
+		return
+	}
+
+	bytes, err := generateBytes("templates/contract-template.docx", data)
+	if err != nil {
+		slog.Error("Ошибка генерации договора", "error", err)
+		http.Error(w, "Ошибка генерации договора: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("договор_%s.docx", data.OrderID)
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.PathEscape(filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bytes)))
+	w.Write(bytes)
+}
+
+func (h Handler) DownloadAct(w http.ResponseWriter, r *http.Request) {
+	orderID, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't get id from request", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.buildReportData(r.Context(), orderID)
+	if err != nil {
+		slog.Error("failed to get order for act", "orderID", orderID, "error", err)
+		http.Error(w, "Заказ не найден", http.StatusNotFound)
+		return
+	}
+
+	bytes, err := generateBytes("templates/act-template.docx", data)
+	if err != nil {
+		slog.Error("Ошибка генерации акта", "error", err)
+		http.Error(w, "Ошибка генерации акта: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("акт_%s.docx", data.OrderID)
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+	w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''`+url.PathEscape(filename))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(bytes)))
+	w.Write(bytes)
+}
+
+type ReportPeriod struct {
+	Start time.Time
+	End   time.Time
+}
+
+type TopClient struct {
+	Name    string
+	Revenue decimal.Decimal
+	Count   int
+}
+
+type OrderStats struct {
+	Period         ReportPeriod
+	Orders         []models.Order
+	TotalOrders    int
+	TotalRevenue   decimal.Decimal
+	AvgPrice       decimal.Decimal
+	AvgDistance    float64
+	AvgWeight      float64
+	OrdersByStatus map[models.OrderStatus]int
+	OrdersByMonth  map[string]int // "2025-03"
+	TopClients     []TopClient
+}
+
+// GenerateOrdersReport создаёт Excel-файл с отчётом и графиками
+func GenerateOrdersReport(stats OrderStats) ([]byte, error) {
+	f := excelize.NewFile()
+	defer f.Close()
+
+	// --------------------------------------------------
+	// Лист 1 — Основной отчёт (таблица + сводка)
+	// --------------------------------------------------
+	sheet := "Отчёт по заказам"
+	f.SetSheetName(f.GetSheetName(0), sheet)
+	// Заголовки сводки
+	f.SetCellValue(sheet, "A1", "Отчёт по заказам")
+
+	periodStr := ""
+	switch {
+	case !stats.Period.Start.IsZero() && !stats.Period.End.IsZero():
+		periodStr = fmt.Sprintf("Период: %s — %s",
+			stats.Period.Start.Format("02.01.2006"),
+			stats.Period.End.Format("02.01.2006"))
+	case !stats.Period.Start.IsZero():
+		periodStr = fmt.Sprintf("Период: с %s", stats.Period.Start.Format("02.01.2006"))
+	case !stats.Period.End.IsZero():
+		periodStr = fmt.Sprintf("Период: по %s", stats.Period.End.Format("02.01.2006"))
+	default:
+		periodStr = "Период: все заказы"
+	}
+	f.SetCellValue(sheet, "A2", periodStr)
+
+	row := 4
+	f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "Всего заказов")
+	f.SetCellValue(sheet, fmt.Sprintf("B%d", row), stats.TotalOrders)
+	row++
+
+	f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "Общая выручка (без НДС)")
+	f.SetCellValue(sheet, fmt.Sprintf("B%d", row), stats.TotalRevenue.StringFixed(2)+" BYN")
+	row++
+
+	f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "Средний чек")
+	f.SetCellValue(sheet, fmt.Sprintf("B%d", row), stats.AvgPrice.StringFixed(2)+" BYN")
+	row++
+
+	f.SetCellValue(sheet, fmt.Sprintf("A%d", row), "Среднее расстояние")
+	f.SetCellValue(sheet, fmt.Sprintf("B%d", row), fmt.Sprintf("%.1f км", stats.AvgDistance))
+	row++
+
+	// Таблица заказов
+	row += 2
+	headers := []string{"№", "Дата", "Клиент", "Сотрудник", "Груз", "Вес, кг", "Расстояние, км", "Сумма, BYN", "Статус"}
+	for col, h := range headers {
+		cell, _ := excelize.CoordinatesToCellName(col+1, row)
+		f.SetCellValue(sheet, cell, h)
+	}
+	f.SetRowHeight(sheet, row, 20)
+
+	styleHeader, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{Bold: true, Size: 11},
+		Fill: excelize.Fill{Type: "pattern", Color: []string{"D9EAD3"}, Pattern: 1},
+		Border: []excelize.Border{
+			{Type: "left", Style: 1, Color: "000000"},
+			{Type: "top", Style: 1, Color: "000000"},
+			{Type: "right", Style: 1, Color: "000000"},
+			{Type: "bottom", Style: 1, Color: "000000"},
+		},
+	})
+	f.SetCellStyle(sheet, "A"+fmt.Sprint(row), "I"+fmt.Sprint(row), styleHeader)
+
+	row++
+	for i, o := range stats.Orders {
+		colA := fmt.Sprintf("A%d", row)
+		f.SetCellValue(sheet, colA, i+1)
+		f.SetCellValue(sheet, "B"+fmt.Sprint(row), o.CreatedAt.Format("02.01.2006"))
+		f.SetCellValue(sheet, "C"+fmt.Sprint(row), o.ClientName)
+		f.SetCellValue(sheet, "D"+fmt.Sprint(row), o.EmployeeName)
+		f.SetCellValue(sheet, "E"+fmt.Sprint(row), o.PriceCargoType)
+		f.SetCellValue(sheet, "F"+fmt.Sprint(row), o.Weight)
+		f.SetCellValue(sheet, "G"+fmt.Sprint(row), fmt.Sprintf("%.1f", o.Distance))
+		f.SetCellValue(sheet, "H"+fmt.Sprint(row), o.TotalPrice.StringFixed(2))
+		f.SetCellValue(sheet, "I"+fmt.Sprint(row), string(o.Status))
+		row++
+	}
+
+	f.SetColWidth(sheet, "A", "I", 14)
+
+	// --------------------------------------------------
+	// Лист 2 — Статистика и графики
+	// --------------------------------------------------
+	sheetStats := "Статистика"
+	f.NewSheet(sheetStats)
+
+	// 1. Заказы по месяцам (данные)
+	f.SetCellValue(sheetStats, "A1", "Месяц")
+	f.SetCellValue(sheetStats, "B1", "Кол-во заказов")
+	row = 2
+	for month, cnt := range stats.OrdersByMonth {
+		f.SetCellValue(sheetStats, fmt.Sprintf("A%d", row), month)
+		f.SetCellValue(sheetStats, fmt.Sprintf("B%d", row), cnt)
+		row++
+	}
+	monthLastRow := row - 1
+
+	categories := fmt.Sprintf(`%s!$A$2:$A$%d`, sheetStats, monthLastRow)
+	values := fmt.Sprintf(`%s!$B$2:$B$%d`, sheetStats, monthLastRow)
+
+	// Линейный график — заказы по месяцам
+	if err := f.AddChart(sheetStats, "D2", &excelize.Chart{
+		Type: excelize.Line,
+		Series: []excelize.ChartSeries{
+			{
+				Name:       "Заказы",
+				Categories: categories,
+				Values:     values,
+				Line: excelize.ChartLine{
+					Fill: excelize.Fill{Color: []string{"2F5597"}},
+				},
+			},
+		},
+		Title: []excelize.RichTextRun{{Text: "Динамика заказов по месяцам"}},
+		Legend: excelize.ChartLegend{Position: "bottom"},
+		PlotArea: excelize.ChartPlotArea{ShowLeaderLines: true},
+	}); err != nil {
+		return nil, err
+	}
+
+	// === НОВЫЙ ГРАФИК 1: Столбчатая диаграмма заказов по месяцам (справа) ===
+	if err := f.AddChart(sheetStats, "J2", &excelize.Chart{
+		Type: excelize.Col,
+		Series: []excelize.ChartSeries{
+			{
+				Name:       "Заказы",
+				Categories: categories,
+				Values:     values,
+			},
+		},
+		Title: []excelize.RichTextRun{{Text: "Заказы по месяцам (столбцы)"}},
+		Legend: excelize.ChartLegend{Position: "bottom"},
+	}); err != nil {
+		return nil, err
+	}
+
+	// 2. Заказы по статусам (данные + круговая)
+	f.SetCellValue(sheetStats, "A"+fmt.Sprint(row+2), "Статус")
+	f.SetCellValue(sheetStats, "B"+fmt.Sprint(row+2), "Количество")
+	row += 3
+	startPie := row
+	for status, cnt := range stats.OrdersByStatus {
+		f.SetCellValue(sheetStats, fmt.Sprintf("A%d", row), string(status))
+		f.SetCellValue(sheetStats, fmt.Sprintf("B%d", row), cnt)
+		row++
+	}
+
+	categories = fmt.Sprintf(`%s!$A$%d:$A$%d`, sheetStats, startPie, row-1)
+	values = fmt.Sprintf(`%s!$B$%d:$B$%d`, sheetStats, startPie, row-1)
+
+	if err := f.AddChart(sheetStats, "D"+fmt.Sprint(startPie), &excelize.Chart{
+		Type: excelize.Pie,
+		Series: []excelize.ChartSeries{
+			{
+				Name:       "Статусы",
+				Categories: categories,
+				Values:     values,
+			},
+		},
+		Title: []excelize.RichTextRun{{Text: "Распределение по статусам"}},
+		Legend: excelize.ChartLegend{Position: "right"},
+	}); err != nil {
+		return nil, err
+	}
+
+	// === НОВЫЙ ГРАФИК 2: Топ-клиенты по выручке (горизонтальная столбчатая) ===
+	f.SetCellValue(sheetStats, fmt.Sprintf("A%d", row+2), "Клиент")
+	f.SetCellValue(sheetStats, fmt.Sprintf("B%d", row+2), "Выручка (BYN)")
+	f.SetCellValue(sheetStats, fmt.Sprintf("C%d", row+2), "Кол-во заказов")
+	row += 3
+	startTop := row
+
+	for _, tc := range stats.TopClients {
+		f.SetCellValue(sheetStats, fmt.Sprintf("A%d", row), tc.Name)
+		revFloat := tc.Revenue.InexactFloat64() // числовое значение для графика
+		f.SetCellValue(sheetStats, fmt.Sprintf("B%d", row), revFloat)
+		f.SetCellValue(sheetStats, fmt.Sprintf("C%d", row), tc.Count)
+		row++
+	}
+
+	if len(stats.TopClients) > 0 {
+		categories = fmt.Sprintf(`%s!$A$%d:$A$%d`, sheetStats, startTop, row-1)
+		values = fmt.Sprintf(`%s!$B$%d:$B$%d`, sheetStats, startTop, row-1)
+
+		if err := f.AddChart(sheetStats, fmt.Sprintf("J%d", startTop-1), &excelize.Chart{
+			Type: excelize.Bar, // горизонтальная — удобно для длинных названий клиентов
+			Series: []excelize.ChartSeries{
+				{
+					Name:       "Выручка",
+					Categories: categories,
+					Values:     values,
+				},
+			},
+			Title: []excelize.RichTextRun{{Text: "Топ клиентов по выручке"}},
+			Legend: excelize.ChartLegend{Position: "bottom"},
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	// Авто-ширина на листе статистики
+	f.SetColWidth(sheetStats, "A", "C", 25)
+
+	// Сохраняем в память
+	buf, err := f.WriteToBuffer()
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+	"github.com/shopspring/decimal"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+// GetEmployeesPage renders the full employees page.
+func (h Handler) GetEmployeesPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseEmployeeFilters(r)
+
+	slog.Debug("getting get employees","page",page,"filter",filter)
+	employees, total, err := h.DB.GetEmployees(r.Context(), 1, models.EmployeeFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of employees", "error", err)
+		ui.Toast("error", "Can't render employees page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.EmployeesPage(employees, page, total, filter).Render(r.Context(), w)
+}
+
+// GetEmployees returns the employees table (for HTMX partial updates).
+func (h Handler) GetEmployees(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseEmployeeFilters(r)
+
+	employees, total, err := h.DB.GetEmployees(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of employees", "error", err)
+		ui.Toast("error", "Can't get employees data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve employees from database", "filter", filter, "page", page,
+		"total pages", total, "total employees", len(employees))
+	ui.EmployeesTable(employees, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parseEmployeeFilters(r *http.Request) models.EmployeeFilter {
+	filter := models.EmployeeFilter{}
+	q := r.URL.Query()
+
+	if name := q.Get("name"); name != "" && checkEmployeeNameFilter(name) == nil {
+		filter.Name.SetValue(name)
+	}
+	if job := q.Get("job_title"); job != "" {
+		j := models.EmployeeJobTitle(job)
+		filter.JobTitle.SetValue(j)
+	}
+	if status := q.Get("status"); status != "" {
+		if err := checkEmployeeStatus(status); err == nil {
+			filter.Status.SetValue(models.EmployeeStatus(status))
+		}
+	}
+	if salaryMin := q.Get("salary_min"); salaryMin != "" {
+		if d, err := decimal.NewFromString(salaryMin); err == nil && d.IsPositive() {
+			filter.SalaryMin.SetValue(d)
+		}
+	}
+	if salaryMax := q.Get("salary_max"); salaryMax != "" {
+		if d, err := decimal.NewFromString(salaryMax); err == nil && d.IsPositive() {
+			filter.SalaryMax.SetValue(d)
+		}
+	}
+	if q.Has("sort") {
+		filter.SortBy.SetValue(q.Get("sort"))
+	} else {
+		filter.SortBy.SetValue("employee_id")
+	}
+	if q.Has("order") {
+		filter.SortOrder.SetValue(q.Get("order"))
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseEmployeeCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding employee", "data", form)
+		ui.EmployeesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	// Convert form values to proper types
+	hireDate, _ := time.Parse("2006-01-02", form["hire_date"].Value)
+	salary, _ := decimal.NewFromString(form["salary"].Value)
+	licenseIssued, _ := time.Parse("2006-01-02", form["license_issued"].Value)
+	licenseExpiration, _ := time.Parse("2006-01-02", form["license_expiration"].Value)
+
+	emp := models.Employee{
+		Name:              form["name"].Value,
+		Status:            models.EmployeeStatus(form["status"].Value),
+		JobTitle:          models.EmployeeJobTitle(form["job_title"].Value),
+		HireDate:          hireDate,
+		Salary:            salary,
+		LicenseIssued:     licenseIssued,
+		LicenseExpiration: licenseExpiration,
+	}
+
+	_, err := h.DB.CreateEmployee(r.Context(), db.CreateEmployeeArgs{
+		LicenseExpiration: emp.LicenseExpiration,
+		LicenseIssued: emp.LicenseIssued,
+		Salary: emp.Salary,
+		HireDate: emp.HireDate,
+		JobTitle: emp.JobTitle,
+		Status: emp.Status,
+		Name: emp.Name,
+	})
+	if err != nil {
+		slog.Error("can't create employee", "error", err)
+		ui.Toast("error", "Can't create employee", "Something went wrong").Render(r.Context(), w)
+		ui.EmployeesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new employee", "data", form)
+	ui.Toast("success", "Employee created", "Employee successfully created").Render(r.Context(), w)
+	// h.GetEmployees(w, r) // optionally refresh table
+}
+
+func parseEmployeeCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	form["name"] = ui.FormField{Value: name}
+	if err = checkEmployeeName(name); err != nil {
+		form["name"] = ui.FormField{Value: name, Err: err}
+	}
+
+	status := r.PostForm.Get("status")
+	form["status"] = ui.FormField{Value: status}
+	if err = checkEmployeeStatus(status); err != nil {
+		form["status"] = ui.FormField{Value: status, Err: err}
+	}
+
+	job := r.PostForm.Get("job_title")
+	form["job_title"] = ui.FormField{Value: job}
+	if err = checkEmployeeJobTitle(job); err != nil {
+		form["job_title"] = ui.FormField{Value: job, Err: err}
+	}
+
+	hireDateStr := r.PostForm.Get("hire_date")
+	form["hire_date"] = ui.FormField{Value: hireDateStr}
+	_, errHire := time.Parse("2006-01-02", hireDateStr)
+	if errHire != nil {
+		err = errors.New("invalid hire date (use YYYY-MM-DD)")
+		form["hire_date"] = ui.FormField{Value: hireDateStr, Err: err}
+	}
+
+	salaryStr := r.PostForm.Get("salary")
+	form["salary"] = ui.FormField{Value: salaryStr}
+	salary, errSalary := decimal.NewFromString(salaryStr)
+	if errSalary != nil || salary.IsNegative() {
+		err = errors.New("invalid salary (positive number expected)")
+		form["salary"] = ui.FormField{Value: salaryStr, Err: err}
+	}
+
+	licenseIssuedStr := r.PostForm.Get("license_issued")
+	form["license_issued"] = ui.FormField{Value: licenseIssuedStr}
+	licenseIssued, errIssued := time.Parse("2006-01-02", licenseIssuedStr)
+	if errIssued != nil {
+		err = errors.New("invalid license issued date (use YYYY-MM-DD)")
+		form["license_issued"] = ui.FormField{Value: licenseIssuedStr, Err: err}
+	}
+
+	licenseExpStr := r.PostForm.Get("license_expiration")
+	form["license_expiration"] = ui.FormField{Value: licenseExpStr}
+	licenseExp, errExp := time.Parse("2006-01-02", licenseExpStr)
+	if errExp != nil {
+		err = errors.New("invalid license expiration date (use YYYY-MM-DD)")
+		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
+	}
+
+	// Cross‑field validation
+	if err == nil && licenseExp.Before(licenseIssued) {
+		err = errors.New("license expiration must be after issue date")
+		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
+	}
+	return
+}
+
+// ============================================================================
+// Read (single employee for sheet)
+// ============================================================================
+
+func (h Handler) GetEmployeeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get employee data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	employee, err := h.DB.GetEmployeeByID(r.Context(), id)
+	if err != nil {
+		slog.Error("can't retrieve employee", "error", err, "id", id)
+		ui.Toast("error", "Can't get employee data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve employee", "employee", employee)
+	ui.EmployeesViewSheetContent(employee, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect employee ID").Render(r.Context(), w)
+		h.GetEmployeeHandler(w,r)
+		return
+	}
+
+	existing, err := h.DB.GetEmployeeByID(r.Context(), id)
+	if err != nil {
+		slog.Error("can't receive employee", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		h.GetEmployeeHandler(w,r)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		h.GetEmployeeHandler(w,r)
+		return
+	}
+
+	err, form := parseEmployeeUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update employee", "form", form, "err", err)
+		ui.EmployeesViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	// Convert form values
+	hireDate, _ := time.Parse("2006-01-02", form["hire_date"].Value)
+	salary, _ := decimal.NewFromString(form["salary"].Value)
+	licenseIssued, _ := time.Parse("2006-01-02", form["license_issued"].Value)
+	licenseExpiration, _ := time.Parse("2006-01-02", form["license_expiration"].Value)
+
+	if err := h.DB.UpdateEmployee(r.Context(), db.UpdateEmployeeArgs{
+		EmployeeID: id,
+		Name: form["name"].Value,
+		Status: models.EmployeeStatus(form["status"].Value),
+		JobTitle: models.EmployeeJobTitle(form["job_title"].Value),
+		HireDate: hireDate,
+		Salary: salary,
+		LicenseIssued: licenseIssued,
+		LicenseExpiration: licenseExpiration,
+	}); err != nil {
+		slog.Error("can't update employee", "error", err, "id", id)
+		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+		h.GetEmployeeHandler(w,r)
+		return
+	}
+
+	slog.Debug("update employee", "form data", form)
+	ui.Toast("success", "Employee updated", "Employee successfully updated").Render(r.Context(), w)
+	h.GetEmployeeHandler(w, r)
+	h.GetEmployees(w, r)
+}
+
+func parseEmployeeUpdateForm(r *http.Request, existing models.Employee) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	if name == "" {
+		name = existing.Name
+	}
+	form["name"] = ui.FormField{Value: name}
+	if err = checkEmployeeName(name); err != nil {
+		form["name"] = ui.FormField{Value: name, Err: err}
+	}
+
+	status := r.PostForm.Get("status")
+	if status == "" {
+		status = string(existing.Status)
+	}
+	form["status"] = ui.FormField{Value: status}
+	if err = checkEmployeeStatus(status); err != nil {
+		form["status"] = ui.FormField{Value: status, Err: err}
+	}
+
+	job := r.PostForm.Get("job_title")
+	if job == "" {
+		job = string(existing.JobTitle)
+	}
+	form["job_title"] = ui.FormField{Value: job}
+	if err = checkEmployeeJobTitle(job); err != nil {
+		form["job_title"] = ui.FormField{Value: job, Err: err}
+	}
+
+	hireDateStr := r.PostForm.Get("hire_date")
+	if hireDateStr == "" {
+		hireDateStr = existing.HireDate.Format("2006-01-02")
+	}
+	form["hire_date"] = ui.FormField{Value: hireDateStr}
+	if hireDate, errHire := time.Parse("2006-01-02", hireDateStr); errHire != nil {
+		err = errors.New("invalid hire date (use YYYY-MM-DD)")
+		form["hire_date"] = ui.FormField{Value: hireDate.String(), Err: err}
+	}
+
+	salaryStr := r.PostForm.Get("salary")
+	if salaryStr == "" {
+		salaryStr = existing.Salary.String()
+	}
+	form["salary"] = ui.FormField{Value: salaryStr}
+	salary, errSalary := decimal.NewFromString(salaryStr)
+	if errSalary != nil || salary.IsNegative() {
+		err = errors.New("invalid salary (positive number expected)")
+		form["salary"] = ui.FormField{Value: salaryStr, Err: err}
+	}
+
+	licenseIssuedStr := r.PostForm.Get("license_issued")
+	if licenseIssuedStr == "" {
+		licenseIssuedStr = existing.LicenseIssued.Format("2006-01-02")
+	}
+	form["license_issued"] = ui.FormField{Value: licenseIssuedStr}
+	licenseIssued, errIssued := time.Parse("2006-01-02", licenseIssuedStr)
+	if errIssued != nil {
+		err = errors.New("invalid license issued date (use YYYY-MM-DD)")
+		form["license_issued"] = ui.FormField{Value: licenseIssuedStr, Err: err}
+	}
+
+	licenseExpStr := r.PostForm.Get("license_expiration")
+	if licenseExpStr == "" {
+		licenseExpStr = existing.LicenseExpiration.Format("2006-01-02")
+	}
+	form["license_expiration"] = ui.FormField{Value: licenseExpStr}
+	licenseExp, errExp := time.Parse("2006-01-02", licenseExpStr)
+	if errExp != nil {
+		err = errors.New("invalid license expiration date (use YYYY-MM-DD)")
+		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
+	}
+
+	if err == nil && licenseExp.Before(licenseIssued) {
+		err = errors.New("license expiration must be after issue date")
+		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
+	}
+
+	if time.Now().After(licenseExp) && models.EmployeeStatus(status) == models.EmployeeStatusAssigned{
+		err = errors.New("employee with expired license cannot be assigned")
+		form["status"] = ui.FormField{Value: status, Err: err}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteEmployeeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteEmployee(r.Context(), id); err != nil {
+		slog.Error("can't delete employee", "error", err, "id", id)
+		ui.Toast("error", "Can't delete employee", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting employee", "employeeID", id)
+	ui.Toast("success", "Deleted", "Employee successfully deleted").Render(r.Context(), w)
+	h.GetEmployees(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteEmployeesHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete employees", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete employees", "No employees selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.ParseInt(idStr,10,32)
+		if err != nil {
+			slog.Error("can't parse employee id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteEmployees(r.Context(), ids); err != nil {
+		slog.Error("can't delete employees batch", "error", err)
+	}
+
+	h.GetEmployees(w, r)
+}
+
+// ============================================================================
+// Export (placeholder)
+// ============================================================================
+// func (h Handler) ExportEmployeesHandler(w http.ResponseWriter, r *http.Request) {
+// 	// To be implemented
+// }
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+func checkEmployeeName(name string) error {
+	if utf8.RuneCountInString(name) < 2 {
+		return errors.New("name must be at least 2 characters")
+	}
+	return nil
+}
+
+func checkEmployeeNameFilter(name string) error {
+	if name == "" {
+		return nil
+	}
+	return checkEmployeeName(name)
+}
+
+func checkEmployeeStatus(status string) error {
+	switch models.EmployeeStatus(status) {
+	case models.EmployeeStatusAvailable, models.EmployeeStatusAssigned, models.EmployeeStatusUnavailable:
+		return nil
+	default:
+		return errors.New("invalid employee status")
+	}
+}
+
+func checkEmployeeJobTitle(job string) error {
+	switch models.EmployeeJobTitle(job) {
+	case models.EmployeeJobTitleDriver, models.EmployeeJobTitleDispatcher,
+		models.EmployeeJobTitleMechanic, models.EmployeeJobTitleLogisticsManager:
+		return nil
+	default:
+		return errors.New("invalid job title")
+	}
+}package handler
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/s-588/tms/internal/db"
+	
+)
+
+type Handler struct {
+	DB db.DB
+}
+
+func NewHandler(db db.DB) Handler {
+	return Handler{
+		DB: db,
+	}
+}
+
+func parseIDFromReq(r *http.Request) (int32, error) {
+	idStr := r.PathValue("id")
+	if idStr != "" {
+		id, err := strconv.ParseInt(idStr,10,32)
+		if err != nil {
+			return 0, fmt.Errorf("can't parse ID from path: %w", err)
+		}
+		return int32(id), nil
+	}
+	return 0, fmt.Errorf("no id value in path")
+}
+
+func parsePagination(r *http.Request) int32 {
+	pageStr := r.URL.Query().Get("page")
+
+	if pageStr == "" {
+		return 1
+	} else {
+		p, _ := strconv.ParseInt(pageStr, 10, 32)
+		if p <= 0 {
+			// TODO: exclude this hardcoded limit to config value
+			p = 1
+		}
+		return int32(p)
+	}
+}package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetInspectionsPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseInspectionFilters(r)
+
+	inspections, total, err := h.DB.GetInspections(r.Context(), 1, models.InspectionFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of inspections", "error", err)
+		ui.Toast("error", "Can't render inspections page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.InspectionsPage(inspections, page, total, filter).Render(r.Context(), w)
+}
+
+func (h Handler) GetInspections(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseInspectionFilters(r)
+
+	inspections, total, err := h.DB.GetInspections(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of inspections", "error", err)
+		ui.Toast("error", "Can't get inspections data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve inspections from database", "filter", filter, "page", page,
+		"total pages", total, "total inspections", len(inspections))
+	ui.InspectionsTable(inspections, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parseInspectionFilters(r *http.Request) models.InspectionFilter {
+	filter := models.InspectionFilter{}
+	q := r.URL.Query()
+
+	if transportID := q.Get("transport_id"); transportID != "" {
+		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
+			filter.TransportID.SetValue(int32(val))
+		}
+	}
+	if status := q.Get("status"); status != "" {
+		if err := checkInspectionStatus(status); err == nil {
+			filter.Status.SetValue(models.InspectionStatus(status))
+		}
+	}
+	if inspectionFrom := q.Get("inspection_from"); inspectionFrom != "" {
+		if t, err := time.Parse("2006-01-02", inspectionFrom); err == nil {
+			filter.InspectionDateFrom.SetValue(t)
+		}
+	}
+	if inspectionTo := q.Get("inspection_to"); inspectionTo != "" {
+		if t, err := time.Parse("2006-01-02", inspectionTo); err == nil {
+			filter.InspectionDateTo.SetValue(t)
+		}
+	}
+	if expirationFrom := q.Get("expiration_from"); expirationFrom != "" {
+		if t, err := time.Parse("2006-01-02", expirationFrom); err == nil {
+			filter.InspectionExpirationFrom.SetValue(t)
+		}
+	}
+	if expirationTo := q.Get("expiration_to"); expirationTo != "" {
+		if t, err := time.Parse("2006-01-02", expirationTo); err == nil {
+			filter.InspectionExpirationTo.SetValue(t)
+		}
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("inspection_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreateInspectionHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseInspectionCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding inspection", "data", form)
+		ui.InspectionsAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	inspectionDate, _ := time.Parse("2006-01-02", form["inspection_date"].Value)
+	expirationDate, _ := time.Parse("2006-01-02", form["inspection_expiration"].Value)
+
+	_, err := h.DB.CreateInspection(r.Context(),db.CreateInspectionArgs{
+		TransportID:          int32(transportID),
+		InspectionDate:       inspectionDate,
+		InspectionExpiration: expirationDate,
+		Status:               models.InspectionStatus(form["status"].Value)})
+	if err != nil {
+		slog.Error("can't create inspection", "error", err)
+		ui.Toast("error", "Can't create inspection", "Something went wrong").Render(r.Context(), w)
+		ui.InspectionsAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new inspection", "data", form)
+	ui.Toast("success", "Inspection created", "Inspection successfully created").Render(r.Context(), w)
+	h.GetInspections(w, r)
+}
+
+func parseInspectionCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Transport ID
+	transportID := strings.TrimSpace(r.PostForm.Get("transport_id"))
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if transportID == "" {
+		err = errors.New("transport ID is required")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	} else {
+		if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+			err = errors.New("transport ID must be a positive integer")
+			form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+		}
+	}
+
+	// Status
+	status := strings.TrimSpace(r.PostForm.Get("status"))
+	form["status"] = ui.FormField{Value: status}
+	if status == "" {
+		err = errors.New("status is required")
+		form["status"] = ui.FormField{Value: status, Err: err}
+	} else {
+		if e := checkInspectionStatus(status); e != nil {
+			err = e
+			form["status"] = ui.FormField{Value: status, Err: err}
+		}
+	}
+
+	// Inspection Date
+	inspectionDate := strings.TrimSpace(r.PostForm.Get("inspection_date"))
+	form["inspection_date"] = ui.FormField{Value: inspectionDate}
+	if inspectionDate == "" {
+		err = errors.New("inspection date is required")
+		form["inspection_date"] = ui.FormField{Value: inspectionDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", inspectionDate); e != nil {
+			err = errors.New("inspection date must be in YYYY-MM-DD format")
+			form["inspection_date"] = ui.FormField{Value: inspectionDate, Err: err}
+		}
+	}
+
+	// Expiration Date
+	expirationDate := strings.TrimSpace(r.PostForm.Get("inspection_expiration"))
+	form["inspection_expiration"] = ui.FormField{Value: expirationDate}
+	if expirationDate == "" {
+		err = errors.New("expiration date is required")
+		form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", expirationDate); e != nil {
+			err = errors.New("expiration date must be in YYYY-MM-DD format")
+			form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	// Cross-field validation: expiration must be after inspection
+	if err == nil {
+		inspT, _ := time.Parse("2006-01-02", inspectionDate)
+		expT, _ := time.Parse("2006-01-02", expirationDate)
+		if expT.Before(inspT) {
+			err = errors.New("expiration date must be after inspection date")
+			form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Read (single inspection for sheet)
+// ============================================================================
+
+func (h Handler) GetInspectionHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get inspection data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	inspection, err := h.DB.GetInspectionByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve inspection", "error", err, "id", id)
+		ui.Toast("error", "Can't get inspection data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve inspection", "inspection", inspection)
+	ui.InspectionsViewSheetContent(inspection, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdateInspectionHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect inspection ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetInspectionByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive inspection", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parseInspectionUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update inspection", "form", form, "err", err)
+		ui.InspectionsViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	inspectionDate, _ := time.Parse("2006-01-02", form["inspection_date"].Value)
+	expirationDate, _ := time.Parse("2006-01-02", form["inspection_expiration"].Value)
+
+	if err := h.DB.UpdateInspection(r.Context(), db.UpdateInspectionArgs{
+		InspectionID:         int32(id),
+		TransportID:          int32(transportID),
+		InspectionDate:       inspectionDate,
+		InspectionExpiration: expirationDate,
+		Status:               models.InspectionStatus(form["status"].Value),
+	}); err != nil {
+		slog.Error("can't update inspection", "error", err, "id", id)
+		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("update inspection", "form data", form)
+	ui.Toast("success", "Inspection updated", "Inspection successfully updated").Render(r.Context(), w)
+	h.GetInspectionHandler(w, r)
+	h.GetInspections(w, r)
+}
+
+func parseInspectionUpdateForm(r *http.Request, existing models.Inspection) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	getValue := func(key string, defaultValue string) string {
+		if val := r.PostForm.Get(key); val != "" {
+			return val
+		}
+		return defaultValue
+	}
+
+	// Transport ID
+	transportID := getValue("transport_id", strconv.Itoa(int(existing.TransportID)))
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if transportID == "" {
+		err = errors.New("transport ID is required")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	} else {
+		if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+			err = errors.New("transport ID must be a positive integer")
+			form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+		}
+	}
+
+	// Status
+	status := getValue("status", string(existing.Status))
+	form["status"] = ui.FormField{Value: status}
+	if status == "" {
+		err = errors.New("status is required")
+		form["status"] = ui.FormField{Value: status, Err: err}
+	} else {
+		if e := checkInspectionStatus(status); e != nil {
+			err = e
+			form["status"] = ui.FormField{Value: status, Err: err}
+		}
+	}
+
+	// Inspection Date
+	inspectionDate := getValue("inspection_date", existing.InspectionDate.Format("2006-01-02"))
+	form["inspection_date"] = ui.FormField{Value: inspectionDate}
+	if inspectionDate == "" {
+		err = errors.New("inspection date is required")
+		form["inspection_date"] = ui.FormField{Value: inspectionDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", inspectionDate); e != nil {
+			err = errors.New("inspection date must be in YYYY-MM-DD format")
+			form["inspection_date"] = ui.FormField{Value: inspectionDate, Err: err}
+		}
+	}
+
+	// Expiration Date
+	expirationDate := getValue("inspection_expiration", existing.InspectionExpiration.Format("2006-01-02"))
+	form["inspection_expiration"] = ui.FormField{Value: expirationDate}
+	if expirationDate == "" {
+		err = errors.New("expiration date is required")
+		form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", expirationDate); e != nil {
+			err = errors.New("expiration date must be in YYYY-MM-DD format")
+			form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	// Cross-field validation: expiration must be after inspection
+	if err == nil {
+		inspT, _ := time.Parse("2006-01-02", inspectionDate)
+		expT, _ := time.Parse("2006-01-02", expirationDate)
+		if expT.Before(inspT) {
+			err = errors.New("expiration date must be after inspection date")
+			form["inspection_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteInspectionHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteInspection(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete inspection", "error", err, "id", id)
+		ui.Toast("error", "Can't delete inspection", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting inspection", "inspectionID", id)
+	ui.Toast("success", "Deleted", "Inspection successfully deleted").Render(r.Context(), w)
+	h.GetInspections(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteInspectionsHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete inspections", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete inspections", "No inspections selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse inspection id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteInspections(r.Context(), ids); err != nil {
+		slog.Error("can't delete inspections batch", "error", err)
+	}
+
+	h.GetInspections(w, r)
+}
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+func checkInspectionStatus(status string) error {
+	switch models.InspectionStatus(status) {
+	case models.InspectionStatusReady, models.InspectionStatusRepair, models.InspectionStatusOverdue:
+		return nil
+	default:
+		return errors.New("invalid inspection status (must be ready, repair, or overdue)")
+	}
+}package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+	"github.com/shopspring/decimal"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetInsurancesPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseInsuranceFilters(r)
+
+	insurances, total, err := h.DB.GetInsurances(r.Context(), 1, models.InsuranceFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of insurances", "error", err)
+		ui.Toast("error", "Can't render insurances page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.InsurancesPage(insurances, page, total, filter).Render(r.Context(), w)
+}
+
+func (h Handler) GetInsurances(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseInsuranceFilters(r)
+
+	insurances, total, err := h.DB.GetInsurances(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of insurances", "error", err)
+		ui.Toast("error", "Can't get insurances data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve insurances from database", "filter", filter, "page", page,
+		"total pages", total, "total insurances", len(insurances))
+	ui.InsurancesTable(insurances, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parseInsuranceFilters(r *http.Request) models.InsuranceFilter {
+	filter := models.InsuranceFilter{}
+	q := r.URL.Query()
+
+	if transportID := q.Get("transport_id"); transportID != "" {
+		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
+			filter.TransportID.SetValue(int32(val))
+		}
+	}
+	if insuranceFrom := q.Get("insurance_from"); insuranceFrom != "" {
+		if t, err := time.Parse("2006-01-02", insuranceFrom); err == nil {
+			filter.InsuranceDateFrom.SetValue(t)
+		}
+	}
+	if insuranceTo := q.Get("insurance_to"); insuranceTo != "" {
+		if t, err := time.Parse("2006-01-02", insuranceTo); err == nil {
+			filter.InsuranceDateTo.SetValue(t)
+		}
+	}
+	if expirationFrom := q.Get("expiration_from"); expirationFrom != "" {
+		if t, err := time.Parse("2006-01-02", expirationFrom); err == nil {
+			filter.InsuranceExpirationFrom.SetValue(t)
+		}
+	}
+	if expirationTo := q.Get("expiration_to"); expirationTo != "" {
+		if t, err := time.Parse("2006-01-02", expirationTo); err == nil {
+			filter.InsuranceExpirationTo.SetValue(t)
+		}
+	}
+	if paymentMin := q.Get("payment_min"); paymentMin != "" {
+		if d, err := decimal.NewFromString(paymentMin); err == nil && d.IsPositive() {
+			filter.PaymentMin.SetValue(d)
+		}
+	}
+	if paymentMax := q.Get("payment_max"); paymentMax != "" {
+		if d, err := decimal.NewFromString(paymentMax); err == nil && d.IsPositive() {
+			filter.PaymentMax.SetValue(d)
+		}
+	}
+	if coverageMin := q.Get("coverage_min"); coverageMin != "" {
+		if d, err := decimal.NewFromString(coverageMin); err == nil && d.IsPositive() {
+			filter.CoverageMin.SetValue(d)
+		}
+	}
+	if coverageMax := q.Get("coverage_max"); coverageMax != "" {
+		if d, err := decimal.NewFromString(coverageMax); err == nil && d.IsPositive() {
+			filter.CoverageMax.SetValue(d)
+		}
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("insurance_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreateInsuranceHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseInsuranceCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding insurance", "data", form)
+		ui.InsurancesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	insuranceDate, _ := time.Parse("2006-01-02", form["insurance_date"].Value)
+	expirationDate, _ := time.Parse("2006-01-02", form["insurance_expiration"].Value)
+	payment, _ := decimal.NewFromString(form["payment"].Value)
+	coverage, _ := decimal.NewFromString(form["coverage"].Value)
+
+	_, err := h.DB.CreateInsurance(r.Context(), db.CreateInsuranceArgs{
+		TransportID:         int32(transportID),
+		InsuranceDate:       insuranceDate,
+		InsuranceExpiration: expirationDate,
+		Payment:             payment,
+		Coverage:            coverage})
+	if err != nil {
+		slog.Error("can't create insurance", "error", err)
+		ui.Toast("error", "Can't create insurance", "Something went wrong").Render(r.Context(), w)
+		ui.InsurancesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new insurance", "data", form)
+	ui.Toast("success", "Insurance created", "Insurance successfully created").Render(r.Context(), w)
+	h.GetInsurances(w, r)
+}
+
+func parseInsuranceCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Transport ID
+	transportID := strings.TrimSpace(r.PostForm.Get("transport_id"))
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if transportID == "" {
+		err = errors.New("transport ID is required")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	} else {
+		if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+			err = errors.New("transport ID must be a positive integer")
+			form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+		}
+	}
+
+	// Insurance Date
+	insuranceDate := strings.TrimSpace(r.PostForm.Get("insurance_date"))
+	form["insurance_date"] = ui.FormField{Value: insuranceDate}
+	if insuranceDate == "" {
+		err = errors.New("insurance date is required")
+		form["insurance_date"] = ui.FormField{Value: insuranceDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", insuranceDate); e != nil {
+			err = errors.New("insurance date must be in YYYY-MM-DD format")
+			form["insurance_date"] = ui.FormField{Value: insuranceDate, Err: err}
+		}
+	}
+
+	// Expiration Date
+	expirationDate := strings.TrimSpace(r.PostForm.Get("insurance_expiration"))
+	form["insurance_expiration"] = ui.FormField{Value: expirationDate}
+	if expirationDate == "" {
+		err = errors.New("expiration date is required")
+		form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", expirationDate); e != nil {
+			err = errors.New("expiration date must be in YYYY-MM-DD format")
+			form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	// Payment
+	payment := strings.TrimSpace(r.PostForm.Get("payment"))
+	form["payment"] = ui.FormField{Value: payment}
+	if payment == "" {
+		err = errors.New("payment is required")
+		form["payment"] = ui.FormField{Value: payment, Err: err}
+	} else {
+		if d, e := decimal.NewFromString(payment); e != nil || d.IsNegative() {
+			err = errors.New("payment must be a positive decimal")
+			form["payment"] = ui.FormField{Value: payment, Err: err}
+		}
+	}
+
+	// Coverage
+	coverage := strings.TrimSpace(r.PostForm.Get("coverage"))
+	form["coverage"] = ui.FormField{Value: coverage}
+	if coverage == "" {
+		err = errors.New("coverage is required")
+		form["coverage"] = ui.FormField{Value: coverage, Err: err}
+	} else {
+		if d, e := decimal.NewFromString(coverage); e != nil || d.IsNegative() {
+			err = errors.New("coverage must be a positive decimal")
+			form["coverage"] = ui.FormField{Value: coverage, Err: err}
+		}
+	}
+
+	// Cross-field validation: expiration must be after insurance date
+	if err == nil {
+		insT, _ := time.Parse("2006-01-02", insuranceDate)
+		expT, _ := time.Parse("2006-01-02", expirationDate)
+		if expT.Before(insT) {
+			err = errors.New("expiration date must be after insurance date")
+			form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Read (single insurance for sheet)
+// ============================================================================
+
+func (h Handler) GetInsuranceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get insurance data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	insurance, err := h.DB.GetInsuranceByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve insurance", "error", err, "id", id)
+		ui.Toast("error", "Can't get insurance data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve insurance", "insurance", insurance)
+	ui.InsurancesViewSheetContent(insurance, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdateInsuranceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect insurance ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetInsuranceByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive insurance", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parseInsuranceUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update insurance", "form", form, "err", err)
+		ui.InsurancesViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	insuranceDate, _ := time.Parse("2006-01-02", form["insurance_date"].Value)
+	expirationDate, _ := time.Parse("2006-01-02", form["insurance_expiration"].Value)
+	payment, _ := decimal.NewFromString(form["payment"].Value)
+	coverage, _ := decimal.NewFromString(form["coverage"].Value)
+
+	if err := h.DB.UpdateInsurance(r.Context(), db.UpdateInsuranceArgs{
+    InsuranceID:         int32(id),
+    TransportID:         int32(transportID),
+    InsuranceDate:       insuranceDate,
+    InsuranceExpiration: expirationDate,
+    Payment:             payment,
+    Coverage:            coverage}); err != nil {
+		slog.Error("can't update insurance", "error", err, "id", id)
+		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("update insurance", "form data", form)
+	ui.Toast("success", "Insurance updated", "Insurance successfully updated").Render(r.Context(), w)
+	h.GetInsuranceHandler(w, r)
+	h.GetInsurances(w, r)
+}
+
+func parseInsuranceUpdateForm(r *http.Request, existing models.Insurance) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	getValue := func(key string, defaultValue string) string {
+		if val := r.PostForm.Get(key); val != "" {
+			return val
+		}
+		return defaultValue
+	}
+
+	// Transport ID
+	transportID := getValue("transport_id", strconv.Itoa(int(existing.TransportID)))
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if transportID == "" {
+		err = errors.New("transport ID is required")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	} else {
+		if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+			err = errors.New("transport ID must be a positive integer")
+			form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+		}
+	}
+
+	// Insurance Date
+	insuranceDate := getValue("insurance_date", existing.InsuranceDate.Format("2006-01-02"))
+	form["insurance_date"] = ui.FormField{Value: insuranceDate}
+	if insuranceDate == "" {
+		err = errors.New("insurance date is required")
+		form["insurance_date"] = ui.FormField{Value: insuranceDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", insuranceDate); e != nil {
+			err = errors.New("insurance date must be in YYYY-MM-DD format")
+			form["insurance_date"] = ui.FormField{Value: insuranceDate, Err: err}
+		}
+	}
+
+	// Expiration Date
+	expirationDate := getValue("insurance_expiration", existing.InsuranceExpiration.Format("2006-01-02"))
+	form["insurance_expiration"] = ui.FormField{Value: expirationDate}
+	if expirationDate == "" {
+		err = errors.New("expiration date is required")
+		form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+	} else {
+		if _, e := time.Parse("2006-01-02", expirationDate); e != nil {
+			err = errors.New("expiration date must be in YYYY-MM-DD format")
+			form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	// Payment
+	payment := getValue("payment", existing.Payment.String())
+	form["payment"] = ui.FormField{Value: payment}
+	if payment == "" {
+		err = errors.New("payment is required")
+		form["payment"] = ui.FormField{Value: payment, Err: err}
+	} else {
+		if d, e := decimal.NewFromString(payment); e != nil || d.IsNegative() {
+			err = errors.New("payment must be a positive decimal")
+			form["payment"] = ui.FormField{Value: payment, Err: err}
+		}
+	}
+
+	// Coverage
+	coverage := getValue("coverage", existing.Coverage.String())
+	form["coverage"] = ui.FormField{Value: coverage}
+	if coverage == "" {
+		err = errors.New("coverage is required")
+		form["coverage"] = ui.FormField{Value: coverage, Err: err}
+	} else {
+		if d, e := decimal.NewFromString(coverage); e != nil || d.IsNegative() {
+			err = errors.New("coverage must be a positive decimal")
+			form["coverage"] = ui.FormField{Value: coverage, Err: err}
+		}
+	}
+
+	// Cross-field validation: expiration must be after insurance date
+	if err == nil {
+		insT, _ := time.Parse("2006-01-02", insuranceDate)
+		expT, _ := time.Parse("2006-01-02", expirationDate)
+		if expT.Before(insT) {
+			err = errors.New("expiration date must be after insurance date")
+			form["insurance_expiration"] = ui.FormField{Value: expirationDate, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteInsuranceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteInsurance(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete insurance", "error", err, "id", id)
+		ui.Toast("error", "Can't delete insurance", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting insurance", "insuranceID", id)
+	ui.Toast("success", "Deleted", "Insurance successfully deleted").Render(r.Context(), w)
+	h.GetInsurances(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteInsurancesHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete insurances", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete insurances", "No insurances selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse insurance id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteInsurances(r.Context(), ids); err != nil {
+		slog.Error("can't delete insurances batch", "error", err)
+	}
+
+	h.GetInsurances(w, r)
+}package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetNodesPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseNodeFilters(r)
+
+	nodes, total, err := h.DB.GetNodes(r.Context(), 1, models.NodeFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of nodes", "error", err)
+		ui.Toast("error", "Can't render nodes page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.NodesPage(nodes, page, total, filter).Render(r.Context(), w)
+}
+
+func (h Handler) GetNodes(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseNodeFilters(r)
+
+	nodes, total, err := h.DB.GetNodes(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of nodes", "error", err)
+		ui.Toast("error", "Can't get nodes data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve nodes from database", "filter", filter, "page", page,
+		"total pages", total, "total nodes", len(nodes))
+	ui.NodesTable(nodes, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parseNodeFilters(r *http.Request) models.NodeFilter {
+	filter := models.NodeFilter{}
+	q := r.URL.Query()
+
+	if name := q.Get("name"); name != "" {
+		filter.Name.SetValue(name)
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("node_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreateNodeHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseNodeCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding node", "data", form)
+		ui.NodesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	// Convert coordinates
+	x, _ := strconv.ParseFloat(form["x"].Value, 64)
+	y, _ := strconv.ParseFloat(form["y"].Value, 64)
+
+	_, err := h.DB.CreateNode(r.Context(),
+		db.CreateNodeArgs{
+			Name:    models.Optional[string]{Value: form["name"].Value},
+			Address: form["address"].Value,
+			Geom:    models.Point{X: x, Y: y},
+		})
+	if err != nil {
+		if errors.Is(err, db.ErrDuplicateNodeAddress) {
+			// We can attach the error to any field, or create a general error message
+			// Let's attach it to cargo_type for simplicity
+			form["address"] = ui.FormField{Value: form["address"].Value, Err: errors.New("address already exists")}
+			ui.NodesAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't create node", "error", err)
+		ui.Toast("error", "Can't create node", "Something went wrong").Render(r.Context(), w)
+		ui.NodesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new node", "data", form)
+	ui.Toast("success", "Node created", "Node successfully created").Render(r.Context(), w)
+	h.GetNodes(w, r)
+}
+
+func parseNodeCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Name
+	name := strings.TrimSpace(r.PostForm.Get("name"))
+	form["name"] = ui.FormField{Value: name}
+
+	address := strings.TrimSpace(r.PostForm.Get("address"))
+	form["address"] = ui.FormField{Value: name}
+	if address == "" {
+		err = errors.New("address is required")
+		form["address"] = ui.FormField{Value: name, Err: err}
+	}
+
+	// X coordinate
+	xStr := strings.TrimSpace(r.PostForm.Get("x"))
+	form["x"] = ui.FormField{Value: xStr}
+	if xStr == "" {
+		err = errors.New("X coordinate is required")
+		form["x"] = ui.FormField{Value: xStr, Err: err}
+	} else {
+		if _, e := strconv.ParseFloat(xStr, 64); e != nil {
+			err = errors.New("X coordinate must be a valid number")
+			form["x"] = ui.FormField{Value: xStr, Err: err}
+		}
+	}
+
+	// Y coordinate
+	yStr := strings.TrimSpace(r.PostForm.Get("y"))
+	form["y"] = ui.FormField{Value: yStr}
+	if yStr == "" {
+		err = errors.New("Y coordinate is required")
+		form["y"] = ui.FormField{Value: yStr, Err: err}
+	} else {
+		if _, e := strconv.ParseFloat(yStr, 64); e != nil {
+			err = errors.New("Y coordinate must be a valid number")
+			form["y"] = ui.FormField{Value: yStr, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Read (single node for sheet)
+// ============================================================================
+
+func (h Handler) GetNodeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get node data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	node, err := h.DB.GetNodeByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve node", "error", err, "id", id)
+		ui.Toast("error", "Can't get node data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve node", "node", node)
+	ui.NodesViewSheetContent(node, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdateNodeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect node ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetNodeByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive node", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parseNodeUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update node", "form", form, "err", err)
+		ui.NodesViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	x, _ := strconv.ParseFloat(form["x"].Value, 64)
+	y, _ := strconv.ParseFloat(form["y"].Value, 64)
+
+	nameOpt := models.Optional[string]{}
+	if nameVal := form["name"].Value; nameVal != "" {
+		nameOpt.SetValue(nameVal)
+	}
+
+	if err := h.DB.UpdateNode(r.Context(), db.UpdateNodeArgs{
+		NodeID:  int32(id),
+		Name:    nameOpt,
+		Geom:    models.Point{X: x, Y: y},
+		Address: form["address"].Value, // from updated form
+	}); err != nil {
+		if errors.Is(err, db.ErrDuplicateNodeAddress) {
+			// We can attach the error to any field, or create a general error message
+			// Let's attach it to cargo_type for simplicity
+			form["address"] = ui.FormField{Value: form["address"].Value, Err: errors.New("address already exists")}
+			ui.NodesAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't update node", "error", err)
+		ui.Toast("error", "Can't update node", "Something went wrong").Render(r.Context(), w)
+		ui.NodesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("update node", "form data", form)
+	ui.Toast("success", "Node updated", "Node successfully updated").Render(r.Context(), w)
+	h.GetNodeHandler(w, r)
+	h.GetNodes(w, r)
+}
+
+func parseNodeUpdateForm(r *http.Request, existing models.Node) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	getValue := func(key string, defaultValue string) string {
+		if val := r.PostForm.Get(key); val != "" {
+			return val
+		}
+		return defaultValue
+	}
+
+	// Name
+	name := getValue("name", existing.Name)
+	form["name"] = ui.FormField{Value: name}
+	if name == "" {
+		err = errors.New("name is required")
+		form["name"] = ui.FormField{Value: name, Err: err}
+	}
+
+	// X coordinate
+	xStr := getValue("x", strconv.FormatFloat(existing.Geom.X, 'f', -1, 64))
+	form["x"] = ui.FormField{Value: xStr}
+	if xStr == "" {
+		err = errors.New("X coordinate is required")
+		form["x"] = ui.FormField{Value: xStr, Err: err}
+	} else {
+		if _, e := strconv.ParseFloat(xStr, 64); e != nil {
+			err = errors.New("X coordinate must be a valid number")
+			form["x"] = ui.FormField{Value: xStr, Err: err}
+		}
+	}
+
+	// Y coordinate
+	yStr := getValue("y", strconv.FormatFloat(existing.Geom.Y, 'f', -1, 64))
+	form["y"] = ui.FormField{Value: yStr}
+	if yStr == "" {
+		err = errors.New("Y coordinate is required")
+		form["y"] = ui.FormField{Value: yStr, Err: err}
+	} else {
+		if _, e := strconv.ParseFloat(yStr, 64); e != nil {
+			err = errors.New("Y coordinate must be a valid number")
+			form["y"] = ui.FormField{Value: yStr, Err: err}
+		}
+	}
+
+	address := getValue("address", existing.Address)
+	form["address"] = ui.FormField{Value: address}
+	if address == "" {
+		err = errors.New("address is required")
+		form["address"] = ui.FormField{Value: address, Err: err}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteNodeHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteNode(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete node", "error", err, "id", id)
+		ui.Toast("error", "Can't delete node", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting node", "nodeID", id)
+	ui.Toast("success", "Deleted", "Node successfully deleted").Render(r.Context(), w)
+	h.GetNodes(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteNodesHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete nodes", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete nodes", "No nodes selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse node id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteNodes(r.Context(), ids); err != nil {
+		slog.Error("can't delete nodes batch", "error", err)
+	}
+
+	h.GetNodes(w, r)
+}
+package handler
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/tms"
+	"github.com/s-588/tms/internal/ui"
+	"github.com/shopspring/decimal"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetOrdersPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseOrderFilters(r)
+
+	orders, total, err := h.DB.GetOrders(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of orders", "error", err)
+		ui.Toast("error", "Can't render orders page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	ctx := addListsToContext(r.Context(), h.DB)
+	ctx = context.WithValue(ctx, ui.FilterKey, filter)
+
+	ui.OrdersPage(orders, page, total).Render(ctx, w)
+}
+
+func (h Handler) GetOrders(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseOrderFilters(r)
+
+	orders, total, err := h.DB.GetOrders(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of orders", "error", err)
+		ui.Toast("error", "Can't get orders data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve orders from database", "filter", filter, "page", page,
+		"total pages", total, "total orders", len(orders))
+	ui.OrdersTable(orders, page, total, true).Render(r.Context(), w)
+}
+
+func parseOrderFilters(r *http.Request) models.OrderFilter {
+	filter := models.OrderFilter{}
+	q := r.URL.Query()
+
+	if clientID := q.Get("client_id"); clientID != "" {
+		if val, err := strconv.Atoi(clientID); err == nil && val > 0 {
+			filter.ClientID.SetValue(int32(val))
+		}
+	}
+	if transportID := q.Get("transport_id"); transportID != "" {
+		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
+			filter.TransportID.SetValue(int32(val))
+		}
+	}
+	if employeeID := q.Get("employee_id"); employeeID != "" {
+		if val, err := strconv.Atoi(employeeID); err == nil && val > 0 {
+			filter.EmployeeID.SetValue(int32(val))
+		}
+	}
+	if priceID := q.Get("price_id"); priceID != "" {
+		if val, err := strconv.Atoi(priceID); err == nil && val > 0 {
+			filter.PriceID.SetValue(int32(val))
+		}
+	}
+	if distanceMin := q.Get("distance_min"); distanceMin != "" {
+		if val, err := strconv.ParseFloat(distanceMin, 10); err == nil && val > 0 {
+			filter.DistanceMin.SetValue(val)
+		}
+	}
+	if distanceMax := q.Get("distance_max"); distanceMax != "" {
+		if val, err := strconv.ParseFloat(distanceMax, 10); err == nil && val > 0 {
+			filter.DistanceMax.SetValue(val)
+		}
+	}
+	if weightMin := q.Get("weight_min"); weightMin != "" {
+		if val, err := strconv.Atoi(weightMin); err == nil && val > 0 {
+			filter.WeightMin.SetValue(int32(val))
+		}
+	}
+	if weightMax := q.Get("weight_max"); weightMax != "" {
+		if val, err := strconv.Atoi(weightMax); err == nil && val > 0 {
+			filter.WeightMax.SetValue(int32(val))
+		}
+	}
+	if priceMin := q.Get("price_min"); priceMin != "" {
+		if d, err := decimal.NewFromString(priceMin); err == nil && d.IsPositive() {
+			filter.TotalPriceMin.SetValue(d)
+		}
+	}
+	if priceMax := q.Get("price_max"); priceMax != "" {
+		if d, err := decimal.NewFromString(priceMax); err == nil && d.IsPositive() {
+			filter.TotalPriceMax.SetValue(d)
+		}
+	}
+	if gradeMin := q.Get("grade_min"); gradeMin != "" {
+		if val, err := strconv.Atoi(gradeMin); err == nil && val >= 0 && val <= 5 {
+			filter.GradeMin.SetValue(uint8(val))
+		}
+	}
+	if gradeMax := q.Get("grade_max"); gradeMax != "" {
+		if val, err := strconv.Atoi(gradeMax); err == nil && val >= 0 && val <= 5 {
+			filter.GradeMax.SetValue(uint8(val))
+		}
+	}
+	if status := q.Get("status"); status != "" {
+		if err := checkOrderStatus(status); err == nil {
+			filter.Status.SetValue(models.OrderStatus(status))
+		}
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("order_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+func (h Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseOrderCreateForm(r)
+	ctx := addListsToContext(r.Context(), h.DB)
+
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding order", "data", form)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	// Convert form values
+	clientID, _ := strconv.ParseInt(form["client_id"].Value, 10, 32)
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
+	employeeID, _ := strconv.ParseInt(form["employee_id"].Value, 10, 32)
+	priceID, _ := strconv.ParseInt(form["price_id"].Value, 10, 32)
+	weight, _ := strconv.ParseInt(form["weight"].Value, 10, 32)
+	nodeStart, _ := strconv.ParseInt(form["node_start"].Value, 10, 32)
+	nodeEnd, _ := strconv.ParseInt(form["node_end"].Value, 10, 32)
+
+	// Set default values for fields no longer in form
+	grade := uint8(0)
+	distance, err := h.DB.CalculateDistance(r.Context(), int32(nodeStart), int32(nodeEnd)) // will be calculated server‑side
+	if err != nil {
+		slog.Error("can't calculate distance", "error", err)
+		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	transport, err := h.DB.GetTransportByID(ctx, int32(transportID))
+	if err != nil {
+		slog.Error("can't get transport", "error", err)
+		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	if transport.PayloadCapacity < int32(weight) {
+		form["transport_id"] = ui.FormField{
+			Value: strconv.FormatInt(transportID, 10),
+			Err:   fmt.Errorf("cannot ship more than vehicle can borrow"),
+		}
+		ui.Toast("error", "Can't create order", "Cannot ship more than vehicle can borrow").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	employee, err := h.DB.GetEmployeeByID(ctx, int32(employeeID))
+	if err != nil {
+		slog.Error("can't get employee", "error", err)
+		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	if employee.Status != models.EmployeeStatusAvailable || employee.JobTitle != models.EmployeeJobTitleDriver {
+		form["employee_id"] = ui.FormField{
+			Value: strconv.FormatInt(employeeID, 10),
+			Err:   fmt.Errorf("unavailable clients cannot be assigned"),
+		}
+		ui.Toast("error", "Can't create order", "Unavailable clients cannot be assigned").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+
+	totalPrice, err := tms.CalculateOrderCost(ctx, h.DB, tms.CalculateOrderCostArgs{
+		ClientID:        int32(clientID),
+		PriceID:         int32(priceID),
+		Weight:          weight,
+		FuelConsumption: transport.FuelConsumption,
+		PayloadCapacity: transport.PayloadCapacity,
+		NodeStartID:     int32(nodeStart),
+		NodeEndID:       int32(nodeEnd),
+	})
+
+	order, err := h.DB.CreateOrder(ctx, db.CreateOrderArg{
+		ClientID:    int32(clientID),
+		TransportID: int32(transportID),
+		EmployeeID:  int32(employeeID),
+		Grade:       grade,
+		Distance:    distance,
+		Weight:      int32(weight),
+		TotalPrice:  totalPrice,
+		PriceID:     int32(priceID),
+		Status:      models.OrderStatus(form["status"].Value),
+		NodeIDStart: int32(nodeStart),
+		NodeIDEnd:   int32(nodeEnd),
+	})
+	if err != nil {
+		slog.Error("can't create order", "error", err)
+		slog.Debug("can't create order",
+			"ClientID", int32(clientID),
+			"TransportID", int32(transportID),
+			"EmployeeID", int32(employeeID),
+			"Grade", grade,
+			"Distance", distance,
+			"Weight", int32(weight),
+			"TotalPrice", totalPrice,
+			"PriceID", int32(priceID),
+			"Status", models.OrderStatus(form["status"].Value),
+			"NodeIDStart", int32(nodeStart),
+			"NodeIDEnd", int32(nodeEnd))
+		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersAddContent(true).Render(ctx, w)
+		return
+	}
+	slog.Info("new order created", "order", order)
+
+	ui.Toast("success", "Order created", "Order successfully created").Render(ctx, w)
+	ui.OrdersAddContent(true).Render(ctx, w)
+	h.GetOrders(w, r)
+}
+
+func parseOrderCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// ClientID
+	clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
+	form["client_id"] = ui.FormField{Value: clientID}
+	if val, e := strconv.Atoi(clientID); e != nil || val <= 0 {
+		err = errors.New("client must be selected")
+		form["client_id"] = ui.FormField{Value: clientID, Err: err}
+	}
+
+	// TransportID
+	transportID := strings.TrimSpace(r.PostForm.Get("transport_id"))
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+		err = errors.New("transport must be selected")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	}
+
+	// EmployeeID
+	employeeID := strings.TrimSpace(r.PostForm.Get("employee_id"))
+	form["employee_id"] = ui.FormField{Value: employeeID}
+	if val, e := strconv.Atoi(employeeID); e != nil || val <= 0 {
+		err = errors.New("employee must be selected")
+		form["employee_id"] = ui.FormField{Value: employeeID, Err: err}
+	}
+
+	// PriceID
+	priceID := strings.TrimSpace(r.PostForm.Get("price_id"))
+	form["price_id"] = ui.FormField{Value: priceID}
+	if val, e := strconv.Atoi(priceID); e != nil || val <= 0 {
+		err = errors.New("price configuration must be selected")
+		form["price_id"] = ui.FormField{Value: priceID, Err: err}
+	}
+
+	// Weight
+	weight := strings.TrimSpace(r.PostForm.Get("weight"))
+	form["weight"] = ui.FormField{Value: weight}
+	if val, e := strconv.Atoi(weight); e != nil || val <= 0 {
+		err = errors.New("weight must be a positive integer")
+		form["weight"] = ui.FormField{Value: weight, Err: err}
+	}
+
+	// Status
+	status := strings.TrimSpace(r.PostForm.Get("status"))
+	form["status"] = ui.FormField{Value: status}
+	if e := checkOrderStatus(status); e != nil {
+		err = e
+		form["status"] = ui.FormField{Value: status, Err: err}
+	}
+
+	// NodeStart (required)
+	nodeStart := strings.TrimSpace(r.PostForm.Get("node_start"))
+	form["node_start"] = ui.FormField{Value: nodeStart}
+	if val, e := strconv.Atoi(nodeStart); e != nil || val <= 0 {
+		err = errors.New("start node must be selected")
+		form["node_start"] = ui.FormField{Value: nodeStart, Err: err}
+	}
+
+	// NodeEnd (required)
+	nodeEnd := strings.TrimSpace(r.PostForm.Get("node_end"))
+	form["node_end"] = ui.FormField{Value: nodeEnd}
+	if val, e := strconv.Atoi(nodeEnd); e != nil || val <= 0 {
+		err = errors.New("end node must be selected")
+		form["node_end"] = ui.FormField{Value: nodeEnd, Err: err}
+	}
+
+	return
+}
+
+func (h Handler) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get order data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	order, err := h.DB.GetOrderByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve order", "error", err, "id", id)
+		ui.Toast("error", "Can't get order data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve order", "order", order)
+
+	ctx := addListsToContext(r.Context(), h.DB)
+	ctx = context.WithValue(ctx, ui.FormKey, ui.Form{}) // empty form
+
+	ui.OrdersViewSheetContent(order).Render(ctx, w)
+}
+
+func (h Handler) UpdateOrderHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect order ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetOrderByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive order", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parseOrderUpdateForm(r, existing)
+	ctx := addListsToContext(r.Context(), h.DB)
+
+	if err != nil {
+		slog.Debug("can't update order", "form", form, "err", err)
+		ctx = context.WithValue(ctx, ui.FormKey, form)
+		ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		return
+	}
+
+	// Convert form values
+	clientID, _ := strconv.ParseInt(form["client_id"].Value, 10, 32)
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
+	employeeID, _ := strconv.ParseInt(form["employee_id"].Value, 10, 32)
+	priceID, _ := strconv.ParseInt(form["price_id"].Value, 10, 32)
+	weight, _ := strconv.ParseInt(form["weight"].Value, 10, 32)
+
+	// Preserve existing grade and total price; distance will be recalculated server‑side
+	grade := existing.Grade
+	distance := existing.Distance // keep current distance until recalculated
+	totalPrice := existing.TotalPrice
+
+	if err := h.DB.UpdateOrder(ctx, db.UpdateOrderArgs{
+		OrderID:     id,
+		ClientID:    int32(clientID),
+		TransportID: int32(transportID),
+		EmployeeID:  int32(employeeID),
+		Grade:       grade,
+		Distance:    distance,
+		Weight:      int32(weight),
+		TotalPrice:  totalPrice,
+		PriceID:     int32(priceID),
+		Status:      models.OrderStatus(form["status"].Value),
+	}); err != nil {
+		slog.Error("can't update order", "error", err, "id", id)
+		ui.Toast("error", "Internal error", "something went wrong").Render(ctx, w)
+		ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		return
+	}
+
+	slog.Debug("update order", "form data", form)
+	ui.Toast("success", "Order updated", "Order successfully updated").Render(ctx, w)
+	h.GetOrderHandler(w, r)
+	h.GetOrders(w, r)
+}
+
+func parseOrderUpdateForm(r *http.Request, existing models.Order) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Helper to get value or default
+	getValue := func(key string) string {
+		return r.PostForm.Get(key)
+	}
+
+	// ClientID
+	clientID := getValue("client_id")
+	form["client_id"] = ui.FormField{Value: clientID}
+	if val, e := strconv.Atoi(clientID); e != nil || val <= 0 {
+		err = errors.New("client must be selected")
+		form["client_id"] = ui.FormField{Value: clientID, Err: err}
+	}
+
+	// TransportID
+	transportID := getValue("transport_id")
+	form["transport_id"] = ui.FormField{Value: transportID}
+	if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
+		err = errors.New("transport must be selected")
+		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
+	}
+
+	// EmployeeID
+	employeeID := getValue("employee_id")
+	form["employee_id"] = ui.FormField{Value: employeeID}
+	if val, e := strconv.Atoi(employeeID); e != nil || val <= 0 {
+		err = errors.New("employee must be selected")
+		form["employee_id"] = ui.FormField{Value: employeeID, Err: err}
+	}
+
+	// PriceID
+	priceID := getValue("price_id")
+	form["price_id"] = ui.FormField{Value: priceID}
+	if val, e := strconv.Atoi(priceID); e != nil || val <= 0 {
+		err = errors.New("price configuration must be selected")
+		form["price_id"] = ui.FormField{Value: priceID, Err: err}
+	}
+
+	// Weight
+	weight := getValue("weight")
+	form["weight"] = ui.FormField{Value: weight}
+	if val, e := strconv.Atoi(weight); e != nil || val <= 0 {
+		err = errors.New("weight must be a positive integer")
+		form["weight"] = ui.FormField{Value: weight, Err: err}
+	}
+
+	// Status
+	status := getValue("status")
+	form["status"] = ui.FormField{Value: status}
+	if e := checkOrderStatus(status); e != nil {
+		err = e
+		form["status"] = ui.FormField{Value: status, Err: err}
+	}
+
+	// NodeStart (required)
+	nodeStart := getValue("node_start")
+	form["node_start"] = ui.FormField{Value: nodeStart}
+	if val, e := strconv.Atoi(nodeStart); e != nil || val <= 0 {
+		err = errors.New("start node must be selected")
+		form["node_start"] = ui.FormField{Value: nodeStart, Err: err}
+	}
+
+	// NodeEnd (required)
+	nodeEnd := getValue("node_end")
+	form["node_end"] = ui.FormField{Value: nodeEnd}
+	if val, e := strconv.Atoi(nodeEnd); e != nil || val <= 0 {
+		err = errors.New("end node must be selected")
+		form["node_end"] = ui.FormField{Value: nodeEnd, Err: err}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteOrderHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteOrder(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete order", "error", err, "id", id)
+		ui.Toast("error", "Can't delete order", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting order", "orderID", id)
+	ui.Toast("success", "Deleted", "Order successfully deleted").Render(r.Context(), w)
+	h.GetOrders(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteOrdersHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete orders", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete orders", "No orders selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse order id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteOrders(r.Context(), ids); err != nil {
+		slog.Error("can't delete orders batch", "error", err)
+	}
+
+	h.GetOrders(w, r)
+}
+
+// ============================================================================
+// Additional Handlers (optional)
+// ============================================================================
+
+func (h Handler) GetOrderTransportsHandler(w http.ResponseWriter, r *http.Request) {
+	// To be implemented if needed
+}
+
+func (h Handler) AssignOrderTransportsHandler(w http.ResponseWriter, r *http.Request) {
+	// To be implemented if needed
+}
+
+// ============================================================================
+// Validation Helpers
+// ============================================================================
+
+func checkOrderStatus(status string) error {
+	switch models.OrderStatus(status) {
+	case models.OrderStatusPending, models.OrderStatusAssigned,
+		models.OrderStatusInProgress, models.OrderStatusCompleted,
+		models.OrderStatusCancelled:
+		return nil
+	default:
+		return errors.New("invalid order status")
+	}
+}
+
+func int32Ptr(i int32) *int32 {
+	return &i
+}
+
+func (h Handler) GetOrderAddForm(w http.ResponseWriter, r *http.Request) {
+	ctx := addListsToContext(r.Context(), h.DB)
+	ctx = context.WithValue(ctx, ui.FormKey, ui.Form{})
+
+	ui.OrdersAddContent(true).Render(ctx, w)
+}
+
+func (h Handler) GetOrderFilterForm(w http.ResponseWriter, r *http.Request) {
+	ctx := addListsToContext(r.Context(), h.DB)
+	filter := parseOrderFilters(r)
+	ctx = context.WithValue(ctx, ui.FilterKey, filter)
+
+	ui.OrdersFilter().Render(ctx, w)
+}
+
+// addListsToContext fetches all reference lists and stores them in the context.
+func addListsToContext(ctx context.Context, db db.DB) context.Context {
+	clients, _ := db.ListClients(ctx)
+	employees, _ := db.ListFreeDrivers(ctx)
+	transports, _ := db.ListFreeTransports(ctx)
+	prices, _ := db.ListPrices(ctx)
+	nodes, _ := db.ListNodes(ctx)
+
+	ctx = context.WithValue(ctx, ui.ClientsKey, clients)
+	ctx = context.WithValue(ctx, ui.EmployeesKey, employees)
+	ctx = context.WithValue(ctx, ui.TransportsKey, transports)
+	ctx = context.WithValue(ctx, ui.PricesKey, prices)
+	ctx = context.WithValue(ctx, ui.NodesKey, nodes)
+
+	return ctx
+}
+
+func (h *Handler) OrdersExport(w http.ResponseWriter, r *http.Request) {
+	filter := parseOrderFilters(r)
+
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	var period ReportPeriod
+	if startStr != "" {
+		period.Start, _ = time.Parse("2006-01-02", startStr)
+	}
+	if endStr != "" {
+		period.End, _ = time.Parse("2006-01-02", endStr)
+	}
+
+	// Fetch all orders matching the filter and date range
+	orders, err := h.GetOrdersForReport(r.Context(), filter, period)
+	if err != nil {
+		slog.Error("failed to fetch orders for export", "error", err)
+		http.Error(w, "Failed to fetch orders", http.StatusInternalServerError)
+		return
+	}
+
+	stats := aggregateStats(orders, period)
+
+	bytes, err := GenerateOrdersReport(stats)
+	if err != nil {
+		slog.Error("failed to generate report", "error", err)
+		http.Error(w, "Failed to generate report", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+	w.Header().Set("Content-Disposition", `attachment; filename="orders_report.xlsx"`)
+	w.Write(bytes)
+}
+
+// fetchAllOrders — получает ВСЕ заказы (обходит пагинацию)
+func (h *Handler) fetchAllOrders(ctx context.Context, filter models.OrderFilter) ([]models.Order, error) {
+	var all []models.Order
+	page := int32(1)
+
+	for {
+		orders, totalPages, err := h.DB.GetOrders(ctx, page, filter)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, orders...)
+
+		if len(orders) == 0 || page >= totalPages {
+			break
+		}
+		page++
+	}
+	return all, nil
+}
+
+// GetOrdersForReport — все заказы + фильтр по периоду (в памяти)
+// GetOrdersForReport — все заказы + фильтр по периоду (в памяти)
+func (h *Handler) GetOrdersForReport(ctx context.Context, filter models.OrderFilter, period ReportPeriod) ([]models.Order, error) {
+	all, err := h.fetchAllOrders(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []models.Order
+	for _, o := range all {
+		// Lower bound: skip if start is set and order is before it
+		if !period.Start.IsZero() && o.CreatedAt.Before(period.Start) {
+			continue
+		}
+		// Upper bound: skip if end is set and order is after the end day
+		if !period.End.IsZero() {
+			endOfPeriod := period.End.Add(24 * time.Hour) // include the entire end day
+			if !o.CreatedAt.Before(endOfPeriod) {
+				continue
+			}
+		}
+		filtered = append(filtered, o)
+	}
+	return filtered, nil
+}
+// aggregateStats — основная функция агрегации
+func aggregateStats(orders []models.Order, period ReportPeriod) OrderStats {
+	stats := OrderStats{
+		Period:         period,
+		Orders:         orders,
+		TotalOrders:    len(orders),
+		OrdersByStatus: make(map[models.OrderStatus]int),
+		OrdersByMonth:  make(map[string]int),
+	}
+
+	if len(orders) == 0 {
+		return stats
+	}
+
+	var totalRevenue decimal.Decimal
+	var totalDistance, totalWeight float64
+	clientMap := make(map[string]struct {
+		Revenue decimal.Decimal
+		Count   int
+	})
+
+	for _, o := range orders {
+		totalRevenue = totalRevenue.Add(o.TotalPrice)
+		totalDistance += o.Distance
+		totalWeight += float64(o.Weight)
+
+		stats.OrdersByStatus[o.Status]++
+
+		monthKey := o.CreatedAt.Format("2006-01")
+		stats.OrdersByMonth[monthKey]++
+
+		c := clientMap[o.ClientName]
+		c.Revenue = c.Revenue.Add(o.TotalPrice)
+		c.Count++
+		clientMap[o.ClientName] = c
+	}
+
+	stats.TotalRevenue = totalRevenue
+	if stats.TotalOrders > 0 {
+		stats.AvgPrice = totalRevenue.Div(decimal.NewFromInt(int64(stats.TotalOrders))).Round(2)
+		stats.AvgDistance = totalDistance / float64(stats.TotalOrders)
+		stats.AvgWeight = totalWeight / float64(stats.TotalOrders)
+	}
+
+	// Топ-10 клиентов
+	for name, v := range clientMap {
+		stats.TopClients = append(stats.TopClients, TopClient{
+			Name:    name,
+			Revenue: v.Revenue,
+			Count:   v.Count,
+		})
+	}
+	sort.Slice(stats.TopClients, func(i, j int) bool {
+		return stats.TopClients[i].Revenue.GreaterThan(stats.TopClients[j].Revenue)
+	})
+	if len(stats.TopClients) > 10 {
+		stats.TopClients = stats.TopClients[:10]
+	}
+
+	return stats
+}
+
+package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+	"github.com/shopspring/decimal"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetPricesPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parsePriceFilters(r)
+
+	// For initial page load, fetch with default filter (page 1, no filters)
+	prices, total, err := h.DB.GetPrices(r.Context(), 1, models.PriceFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of prices", "error", err)
+		ui.Toast("error", "Can't render prices page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.PricesPage(prices, page, total, filter).Render(r.Context(), w)
+}
+
+func (h Handler) GetPrices(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parsePriceFilters(r)
+
+	prices, total, err := h.DB.GetPrices(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of prices", "error", err)
+		ui.Toast("error", "Can't get prices data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve prices from database", "filter", filter, "page", page,
+		"total pages", total, "total prices", len(prices))
+	ui.PricesTable(prices, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parsePriceFilters(r *http.Request) models.PriceFilter {
+	filter := models.PriceFilter{}
+	q := r.URL.Query()
+
+	if cargo := q.Get("cargo_type"); cargo != "" {
+		filter.CargoType.SetValue(cargo)
+	}
+	if weightMin := q.Get("weight_min"); weightMin != "" {
+		if val, err := strconv.Atoi(weightMin); err == nil && val > 0 {
+			filter.WeightMin.SetValue(int32(val))
+		}
+	}
+	if weightMax := q.Get("weight_max"); weightMax != "" {
+		if val, err := strconv.Atoi(weightMax); err == nil && val > 0 {
+			filter.WeightMax.SetValue(int32(val))
+		}
+	}
+	if distMin := q.Get("distance_min"); distMin != "" {
+		if val, err := strconv.Atoi(distMin); err == nil && val > 0 {
+			filter.DistanceMin.SetValue(int32(val))
+		}
+	}
+	if distMax := q.Get("distance_max"); distMax != "" {
+		if val, err := strconv.Atoi(distMax); err == nil && val > 0 {
+			filter.DistanceMax.SetValue(int32(val))
+		}
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("price_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreatePriceHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parsePriceCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding price", "data", form)
+		ui.PricesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	// Convert form values
+	weight, _ := decimal.NewFromString(form["weight"].Value)
+	distance, _ := decimal.NewFromString(form["distance"].Value)
+
+	_, err := h.DB.CreatePrice(r.Context(), db.CreatePriceArgs{
+		CargoType: form["cargo_type"].Value,
+		Weight:    weight,
+		Distance:  distance,
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrDuplicatePrice) {
+			// We can attach the error to any field, or create a general error message
+			// Let's attach it to cargo_type for simplicity
+			form["cargo_type"] = ui.FormField{Value: form["cargo_type"].Value, Err: errors.New("price configuration already exists")}
+			ui.PricesAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't create price", "error", err)
+		ui.Toast("error", "Can't create price", "Something went wrong").Render(r.Context(), w)
+		ui.PricesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new price", "data", form)
+	ui.Toast("success", "Price created", "Price configuration successfully created").Render(r.Context(), w)
+	h.GetPrices(w, r) // refresh table
+}
+
+func parsePriceCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Cargo Type
+	cargo := strings.TrimSpace(r.PostForm.Get("cargo_type"))
+	form["cargo_type"] = ui.FormField{Value: cargo}
+	if cargo == "" {
+		err = errors.New("cargo type is required")
+		form["cargo_type"] = ui.FormField{Value: cargo, Err: err}
+	}
+
+	// Weight
+	weightStr := strings.TrimSpace(r.PostForm.Get("weight"))
+	form["weight"] = ui.FormField{Value: weightStr}
+	if weightStr == "" {
+		err = errors.New("weight coefficient is required")
+		form["weight"] = ui.FormField{Value: weightStr, Err: err}
+	} else {
+		weight, e := decimal.NewFromString(weightStr)
+		if e != nil || weight.IsNegative() || weight.IsZero() {
+			err = errors.New("weight coefficient must be a positive decimal")
+			form["weight"] = ui.FormField{Value: weightStr, Err: err}
+		}
+	}
+
+	// Distance
+	distanceStr := strings.TrimSpace(r.PostForm.Get("distance"))
+	form["distance"] = ui.FormField{Value: distanceStr}
+	if distanceStr == "" {
+		err = errors.New("distance coefficient is required")
+		form["distance"] = ui.FormField{Value: distanceStr, Err: err}
+	} else {
+		distance, e := decimal.NewFromString(distanceStr)
+		if e != nil || distance.IsNegative() || distance.IsZero() {
+			err = errors.New("distance coefficient must be a positive decimal")
+			form["distance"] = ui.FormField{Value: distanceStr, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Read (single price for sheet)
+// ============================================================================
+
+func (h Handler) GetPriceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get price data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	price, err := h.DB.GetPriceByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve price", "error", err, "id", id)
+		ui.Toast("error", "Can't get price data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve price", "price", price)
+	ui.PricesViewSheetContent(price, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdatePriceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect price ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetPriceByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive price", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parsePriceUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update price", "form", form, "err", err)
+		ui.PricesViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	// Convert form values
+	weight, _ := decimal.NewFromString(form["weight"].Value)
+	distance, _ := decimal.NewFromString(form["distance"].Value)
+
+	if err := h.DB.UpdatePrice(r.Context(), db.UpdatePriceArgs{
+		PriceID:   id,
+		CargoType: form["cargo_type"].Value,
+		Weight:    weight,
+		Distance:  distance,
+	}); err != nil {
+		if errors.Is(err, db.ErrDuplicatePrice) {
+			// We can attach the error to any field, or create a general error message
+			// Let's attach it to cargo_type for simplicity
+			form["cargo_type"] = ui.FormField{Value: form["cargo_type"].Value, Err: errors.New("price configuration already exists")}
+			ui.PricesAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't create price", "error", err)
+		ui.Toast("error", "Can't create price", "Something went wrong").Render(r.Context(), w)
+		ui.PricesAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("update price", "form data", form)
+	ui.Toast("success", "Price updated", "Price configuration successfully updated").Render(r.Context(), w)
+	h.GetPriceHandler(w, r) // refresh sheet
+	h.GetPrices(w, r)       // refresh table
+}
+
+func parsePriceUpdateForm(r *http.Request, existing models.Price) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Helper to get value or default
+	getValue := func(key string, defaultValue string) string {
+		if val := r.PostForm.Get(key); val != "" {
+			return val
+		}
+		return defaultValue
+	}
+
+	// Cargo Type
+	cargo := getValue("cargo_type", existing.CargoType)
+	form["cargo_type"] = ui.FormField{Value: cargo}
+	if cargo == "" {
+		err = errors.New("cargo type is required")
+		form["cargo_type"] = ui.FormField{Value: cargo, Err: err}
+	}
+
+	// Weight
+	weightStr := getValue("weight", existing.Weight.String())
+	form["weight"] = ui.FormField{Value: weightStr}
+	if weightStr == "" {
+		err = errors.New("weight coefficient is required")
+		form["weight"] = ui.FormField{Value: weightStr, Err: err}
+	} else {
+		weight, e := decimal.NewFromString(weightStr)
+		if e != nil || weight.IsNegative() || weight.IsZero() {
+			err = errors.New("weight coefficient must be a positive decimal")
+			form["weight"] = ui.FormField{Value: weightStr, Err: err}
+		}
+	}
+
+	// Distance
+	distanceStr := getValue("distance", existing.Distance.String())
+	form["distance"] = ui.FormField{Value: distanceStr}
+	if distanceStr == "" {
+		err = errors.New("distance coefficient is required")
+		form["distance"] = ui.FormField{Value: distanceStr, Err: err}
+	} else {
+		distance, e := decimal.NewFromString(distanceStr)
+		if e != nil || distance.IsNegative() || distance.IsZero() {
+			err = errors.New("distance coefficient must be a positive decimal")
+			form["distance"] = ui.FormField{Value: distanceStr, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeletePriceHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeletePrice(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete price", "error", err, "id", id)
+		ui.Toast("error", "Can't delete price", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting price", "priceID", id)
+	ui.Toast("success", "Deleted", "Price configuration successfully deleted").Render(r.Context(), w)
+	h.GetPrices(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeletePricesHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete prices", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete prices", "No prices selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse price id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeletePrices(r.Context(), ids); err != nil {
+		slog.Error("can't delete prices batch", "error", err)
+	}
+
+	h.GetPrices(w, r)
+}
+
+// ============================================================================
+// Additional Handlers (optional)
+// ============================================================================
+
+// NewPricePageHandler renders the add price form (for direct access if needed)
+func (h Handler) NewPricePageHandler(w http.ResponseWriter, r *http.Request) {
+	ui.PricesAddContent(ui.Form{}).Render(r.Context(), w)
+}
+package handler
+
+import (
+	"net/http"
+)
+
+func (h Handler) SearchHandler(w http.ResponseWriter, r *http.Request) {
+}
+package handler
+
+import (
+	"errors"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/ui"
+)
+
+// ============================================================================
+// Page & Table Handlers
+// ============================================================================
+
+func (h Handler) GetTransportsPage(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseTransportFilters(r)
+
+	transports, total, err := h.DB.GetTransports(r.Context(), 1, models.TransportFilter{})
+	if err != nil {
+		slog.Error("can't retrieve list of transports", "error", err)
+		ui.Toast("error", "Can't render transports page", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	ui.TransportsPage(transports, page, total, filter).Render(r.Context(), w)
+}
+
+func (h Handler) GetTransports(w http.ResponseWriter, r *http.Request) {
+	page := parsePagination(r)
+	filter := parseTransportFilters(r)
+
+	transports, total, err := h.DB.GetTransports(r.Context(), page, filter)
+	if err != nil {
+		slog.Error("can't retrieve list of transports", "error", err)
+		ui.Toast("error", "Can't get transports data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("retrieve transports from database", "filter", filter, "page", page,
+		"total pages", total, "total transports", len(transports))
+	ui.TransportsTable(transports, page, total, filter, true).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Filter Parsing
+// ============================================================================
+
+func parseTransportFilters(r *http.Request) models.TransportFilter {
+	filter := models.TransportFilter{}
+	q := r.URL.Query()
+
+	if model := q.Get("model"); model != "" {
+		filter.Model.SetValue(model)
+	}
+	if license := q.Get("license_plate"); license != "" {
+		filter.LicensePlate.SetValue(license)
+	}
+	if payloadMin := q.Get("payload_min"); payloadMin != "" {
+		if val, err := strconv.Atoi(payloadMin); err == nil && val > 0 {
+			filter.PayloadCapacityMin.SetValue(int32(val))
+		}
+	}
+	if payloadMax := q.Get("payload_max"); payloadMax != "" {
+		if val, err := strconv.Atoi(payloadMax); err == nil && val > 0 {
+			filter.PayloadCapacityMax.SetValue(int32(val))
+		}
+	}
+	if fuelMin := q.Get("fuel_min"); fuelMin != "" {
+		if val, err := strconv.Atoi(fuelMin); err == nil && val > 0 {
+			filter.FuelConsumptionMin.SetValue(int32(val))
+		}
+	}
+	if fuelMax := q.Get("fuel_max"); fuelMax != "" {
+		if val, err := strconv.Atoi(fuelMax); err == nil && val > 0 {
+			filter.FuelConsumptionMax.SetValue(int32(val))
+		}
+	}
+	if sortBy := q.Get("sort"); sortBy != "" {
+		filter.SortBy.SetValue(sortBy)
+	} else {
+		filter.SortBy.SetValue("transport_id")
+	}
+	if sortOrder := q.Get("order"); sortOrder != "" {
+		filter.SortOrder.SetValue(sortOrder)
+	} else {
+		filter.SortOrder.SetValue("desc")
+	}
+	return filter
+}
+
+// ============================================================================
+// Create
+// ============================================================================
+
+func (h Handler) CreateTransportHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		return
+	}
+
+	hasError, form := parseTransportCreateForm(r)
+	if hasError != nil {
+		slog.Debug("incorrect input data for adding transport", "data", form)
+		ui.TransportsAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	payload, _ := strconv.Atoi(form["payload_capacity"].Value)
+	fuel, _ := strconv.Atoi(form["fuel_consumption"].Value)
+
+	_, err := h.DB.CreateTransport(r.Context(),db.CreateTransportArgs{
+		Model: form["model"].Value,
+		LicensePlate: form["license_plate"].Value,
+		PayloadCapacity: int32(payload),
+		FuelConsumption: int32(fuel),
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrDuplicateLicense) {
+			form["license_plate"] = ui.FormField{Value: form["license_plate"].Value, Err: errors.New("license plate already exists")}
+			ui.TransportsAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't create transport", "error", err)
+		ui.Toast("error", "Can't create transport", "Something went wrong").Render(r.Context(), w)
+		ui.TransportsAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("adding new transport", "data", form)
+	ui.Toast("success", "Transport created", "Transport successfully created").Render(r.Context(), w)
+	h.GetTransports(w, r)
+}
+
+func parseTransportCreateForm(r *http.Request) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	// Model
+	model := strings.TrimSpace(r.PostForm.Get("model"))
+	form["model"] = ui.FormField{Value: model}
+	if model == "" {
+		err = errors.New("model is required")
+		form["model"] = ui.FormField{Value: model, Err: err}
+	}
+
+	// License Plate (optional)
+	license := strings.TrimSpace(r.PostForm.Get("license_plate"))
+	form["license_plate"] = ui.FormField{Value: license}
+
+	// Payload Capacity
+	payload := strings.TrimSpace(r.PostForm.Get("payload_capacity"))
+	form["payload_capacity"] = ui.FormField{Value: payload}
+	if payload == "" {
+		err = errors.New("payload capacity is required")
+		form["payload_capacity"] = ui.FormField{Value: payload, Err: err}
+	} else {
+		if val, e := strconv.Atoi(payload); e != nil || val <= 0 {
+			err = errors.New("payload capacity must be a positive integer")
+			form["payload_capacity"] = ui.FormField{Value: payload, Err: err}
+		}
+	}
+
+	// Fuel Consumption
+	fuel := strings.TrimSpace(r.PostForm.Get("fuel_consumption"))
+	form["fuel_consumption"] = ui.FormField{Value: fuel}
+	if fuel == "" {
+		err = errors.New("fuel consumption is required")
+		form["fuel_consumption"] = ui.FormField{Value: fuel, Err: err}
+	} else {
+		if val, e := strconv.Atoi(fuel); e != nil || val <= 0 {
+			err = errors.New("fuel consumption must be a positive integer")
+			form["fuel_consumption"] = ui.FormField{Value: fuel, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Read (single transport for sheet)
+// ============================================================================
+
+func (h Handler) GetTransportHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get transport data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	transport, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve transport", "error", err, "id", id)
+		ui.Toast("error", "Can't get transport data", "Not found").Render(r.Context(), w)
+		return
+	}
+	slog.Debug("retrieve transport", "transport", transport)
+	ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+}
+
+// ============================================================================
+// Update
+// ============================================================================
+
+func (h Handler) UpdateTransportHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Error", "Incorrect transport ID").Render(r.Context(), w)
+		return
+	}
+
+	existing, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't receive transport", "error", err)
+		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		slog.Error("can't parse http form", "error", err)
+		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		return
+	}
+
+	err, form := parseTransportUpdateForm(r, existing)
+	if err != nil {
+		slog.Debug("can't update transport", "form", form, "err", err)
+		ui.TransportsViewSheetContent(existing, form).Render(r.Context(), w)
+		return
+	}
+
+	payload, _ := strconv.Atoi(form["payload_capacity"].Value)
+	fuel, _ := strconv.Atoi(form["fuel_consumption"].Value)
+
+	if err := h.DB.UpdateTransport(r.Context(),db.UpdateTransportArgs{
+		TransportID: int32(id),
+		Model: form["model"].Value,
+		LicensePlate: form["license_plate"].Value,
+		PayloadCapacity: int32(payload),
+		FuelConsumption: int32(fuel),
+	}); err != nil {
+		if errors.Is(err, db.ErrDuplicateLicense) {
+			form["license_plate"] = ui.FormField{Value: form["license_plate"].Value, Err: errors.New("license plate already exists")}
+			ui.TransportsAddContent(form).Render(r.Context(), w)
+			return
+		}
+		slog.Error("can't create transport", "error", err)
+		ui.Toast("error", "Can't create transport", "Something went wrong").Render(r.Context(), w)
+		ui.TransportsAddContent(form).Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("update transport", "form data", form)
+	ui.Toast("success", "Transport updated", "Transport successfully updated").Render(r.Context(), w)
+	h.GetTransportHandler(w, r)
+	h.GetTransports(w, r)
+}
+
+func parseTransportUpdateForm(r *http.Request, existing models.Transport) (err error, form ui.Form) {
+	form = make(ui.Form)
+
+	getValue := func(key string, defaultValue string) string {
+		if val := r.PostForm.Get(key); val != "" {
+			return val
+		}
+		return defaultValue
+	}
+
+	// Model
+	model := getValue("model", existing.Model)
+	form["model"] = ui.FormField{Value: model}
+	if model == "" {
+		err = errors.New("model is required")
+		form["model"] = ui.FormField{Value: model, Err: err}
+	}
+
+	// License Plate
+	license := getValue("license_plate", existing.LicensePlate)
+	form["license_plate"] = ui.FormField{Value: license}
+
+	// Payload Capacity
+	payload := getValue("payload_capacity", strconv.Itoa(int(existing.PayloadCapacity)))
+	form["payload_capacity"] = ui.FormField{Value: payload}
+	if payload == "" {
+		err = errors.New("payload capacity is required")
+		form["payload_capacity"] = ui.FormField{Value: payload, Err: err}
+	} else {
+		if val, e := strconv.Atoi(payload); e != nil || val <= 0 {
+			err = errors.New("payload capacity must be a positive integer")
+			form["payload_capacity"] = ui.FormField{Value: payload, Err: err}
+		}
+	}
+
+	// Fuel Consumption
+	fuel := getValue("fuel_consumption", strconv.Itoa(int(existing.FuelConsumption)))
+	form["fuel_consumption"] = ui.FormField{Value: fuel}
+	if fuel == "" {
+		err = errors.New("fuel consumption is required")
+		form["fuel_consumption"] = ui.FormField{Value: fuel, Err: err}
+	} else {
+		if val, e := strconv.Atoi(fuel); e != nil || val <= 0 {
+			err = errors.New("fuel consumption must be a positive integer")
+			form["fuel_consumption"] = ui.FormField{Value: fuel, Err: err}
+		}
+	}
+
+	return
+}
+
+// ============================================================================
+// Delete
+// ============================================================================
+
+func (h Handler) DeleteTransportHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		return
+	}
+
+	if err := h.DB.SoftDeleteTransport(r.Context(), int32(id)); err != nil {
+		slog.Error("can't delete transport", "error", err, "id", id)
+		ui.Toast("error", "Can't delete transport", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+
+	slog.Debug("deleting transport", "transportID", id)
+	ui.Toast("success", "Deleted", "Transport successfully deleted").Render(r.Context(), w)
+	h.GetTransports(w, r)
+}
+
+// ============================================================================
+// Bulk Delete
+// ============================================================================
+
+func (h Handler) BulkDeleteTransportsHandler(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		ui.Toast("error", "Can't delete transports", "Can't parse form").Render(r.Context(), w)
+		return
+	}
+
+	selectedIDs := r.Form["selected_ids"]
+	if len(selectedIDs) == 0 {
+		ui.Toast("error", "Can't delete transports", "No transports selected").Render(r.Context(), w)
+		return
+	}
+
+	var ids []int32
+	for _, idStr := range selectedIDs {
+		id, err := strconv.Atoi(idStr)
+		if err != nil {
+			slog.Error("can't parse transport id", "error", err, "id", idStr)
+			continue
+		}
+		ids = append(ids, int32(id))
+	}
+
+	if err := h.DB.BulkSoftDeleteTransports(r.Context(), ids); err != nil {
+		slog.Error("can't delete transports batch", "error", err)
+	}
+
+	h.GetTransports(w, r)
+}
+
+// ============================================================================
+// Additional Handlers (optional)
+// ============================================================================
+
+func (h Handler) NewTransportPageHandler(w http.ResponseWriter, r *http.Request) {
+	ui.TransportsAddContent(ui.Form{}).Render(r.Context(), w)
+}
+
+func (h Handler) EditTransportPageHandler(w http.ResponseWriter, r *http.Request) {
+	id, err := parseIDFromReq(r)
+	if err != nil {
+		slog.Error("can't parse id from URL path", "error", err)
+		ui.Toast("error", "Can't get transport data", "Something went wrong").Render(r.Context(), w)
+		return
+	}
+	transport, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	if err != nil {
+		slog.Error("can't retrieve transport", "error", err, "id", id)
+		ui.Toast("error", "Can't get transport data", "Not found").Render(r.Context(), w)
+		return
+	}
+	ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+}
+package handler
+
+import (
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+)
+
+// StringOrNil returns nil if s is empty, otherwise a pointer to s.
+func StringOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// escapeCSV escapes double quotes and wraps field in quotes if needed.
+func escapeCSV(s string) string {
+	if strings.ContainsAny(s, `",`) {
+		return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
+	}
+	return s
+}
+
+// parseOptionalTime parses RFC3339 time string into models.Optional[time.Time].
+func parseOptionalTime(timeStr string) models.Optional[time.Time] {
+	var opt models.Optional[time.Time]
+	if timeStr != "" {
+		if t, err := time.Parse(time.RFC3339, timeStr); err == nil && !t.IsZero() {
+			opt.SetValue(t)
+		}
+	}
+	return opt
+}
+
+// parseOptionalString creates models.Optional[string] from a non-empty string.
+func parseOptionalString(str string) models.Optional[string] {
+	var opt models.Optional[string]
+	if str != "" {
+		opt.SetValue(str)
+	}
+	return opt
+}
+
+// parseOptionalInt32 converts a string to int32 and wraps in models.Optional[int32].
+// If parsing fails or value <= 0, the Optional is left unset.
+func parseOptionalInt32(str string) models.Optional[int32] {
+	var opt models.Optional[int32]
+	if str != "" {
+		if val, err := strconv.Atoi(str); err == nil && val > 0 {
+			opt.SetValue(int32(val))
+		}
+	}
+	return opt
+}

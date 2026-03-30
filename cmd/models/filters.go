@@ -31,16 +31,14 @@ func (o *Optional[T]) ToPtr() *T {
 	return nil
 }
 
-// ClientFilter
+// ClientFilter – all fields optional, defaults for sorting are applied in the DB layer.
 type ClientFilter struct {
 	Name          Optional[string]
 	Email         Optional[string]
 	Phone         Optional[string]
 	EmailVerified Optional[bool]
-	CreatedFrom   Optional[time.Time]
-	CreatedTo     Optional[time.Time]
-	UpdatedFrom   Optional[time.Time]
-	UpdatedTo     Optional[time.Time]
+	ScoreMin      Optional[uint8]
+	ScoreMax      Optional[uint8]
 	SortBy        Optional[string]
 	SortOrder     Optional[string]
 }
@@ -49,7 +47,7 @@ func (f ClientFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at" // default
 }
 
 func (f ClientFilter) GetSortOrder() string {
@@ -79,31 +77,27 @@ func (f ClientFilter) ToQueryString() string {
 
 // EmployeeFilter
 type EmployeeFilter struct {
-	Name        Optional[string]
-	JobTitle    Optional[string]
-	Status      Optional[EmployeeStatus]
-	SalaryMin   Optional[decimal.Decimal]
-	SalaryMax   Optional[decimal.Decimal]
-	CreatedFrom Optional[time.Time]
-	CreatedTo   Optional[time.Time]
-	UpdatedFrom Optional[time.Time]
-	UpdatedTo   Optional[time.Time]
-	SortBy      Optional[string]
-	SortOrder   Optional[string]
+	Name      Optional[string]
+	JobTitle  Optional[EmployeeJobTitle]
+	Status    Optional[EmployeeStatus]
+	SalaryMin Optional[decimal.Decimal]
+	SalaryMax Optional[decimal.Decimal]
+	SortBy    Optional[string]
+	SortOrder Optional[string]
 }
 
 func (f EmployeeFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f EmployeeFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }
 
 // OrderFilter
@@ -111,8 +105,8 @@ type OrderFilter struct {
 	Status        Optional[OrderStatus]
 	TotalPriceMin Optional[decimal.Decimal]
 	TotalPriceMax Optional[decimal.Decimal]
-	DistanceMin   Optional[int32]
-	DistanceMax   Optional[int32]
+	DistanceMin   Optional[float64]
+	DistanceMax   Optional[float64]
 	WeightMin     Optional[int32]
 	WeightMax     Optional[int32]
 	ClientID      Optional[int32]
@@ -121,10 +115,6 @@ type OrderFilter struct {
 	PriceID       Optional[int32]
 	GradeMin      Optional[uint8]
 	GradeMax      Optional[uint8]
-	CreatedFrom   Optional[time.Time]
-	CreatedTo     Optional[time.Time]
-	UpdatedFrom   Optional[time.Time]
-	UpdatedTo     Optional[time.Time]
 	SortBy        Optional[string]
 	SortOrder     Optional[string]
 }
@@ -133,60 +123,49 @@ func (f OrderFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f OrderFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }
 
 // TransportFilter
 type TransportFilter struct {
-	Model              Optional[string]
-	LicensePlate       Optional[string]
-	PayloadCapacityMin Optional[int32]
-	PayloadCapacityMax Optional[int32]
-	FuelConsumptionMin Optional[int32]
-	FuelConsumptionMax Optional[int32]
-	InspectionPassed   Optional[bool]
-	InspectionDateFrom Optional[time.Time]
-	InspectionDateTo   Optional[time.Time]
-	CreatedFrom        Optional[time.Time]
-	CreatedTo          Optional[time.Time]
-	UpdatedFrom        Optional[time.Time]
-	UpdatedTo          Optional[time.Time]
-	SortBy             Optional[string]
-	SortOrder          Optional[string]
+    Model              Optional[string]
+    LicensePlate       Optional[string]
+    PayloadCapacityMin Optional[int32]
+    PayloadCapacityMax Optional[int32]
+    FuelConsumptionMin Optional[int32]
+    FuelConsumptionMax Optional[int32]
+    SortBy             Optional[string]
+    SortOrder          Optional[string]
 }
 
 func (f TransportFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f TransportFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }
 
-// PriceFilter (unchanged)
+// PriceFilter
 type PriceFilter struct {
 	CargoType   Optional[string]
 	WeightMin   Optional[int32]
 	WeightMax   Optional[int32]
 	DistanceMin Optional[int32]
 	DistanceMax Optional[int32]
-	CreatedFrom Optional[time.Time]
-	CreatedTo   Optional[time.Time]
-	UpdatedFrom Optional[time.Time]
-	UpdatedTo   Optional[time.Time]
 	SortBy      Optional[string]
 	SortOrder   Optional[string]
 }
@@ -195,43 +174,38 @@ func (f PriceFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f PriceFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
-
+	return "DESC"
 }
 
-// NodeFilter for filtering nodes.
+// NodeFilter
 type NodeFilter struct {
-	Name        Optional[string]
-	CreatedFrom Optional[time.Time]
-	CreatedTo   Optional[time.Time]
-	UpdatedFrom Optional[time.Time]
-	UpdatedTo   Optional[time.Time]
-	SortBy      Optional[string]
-	SortOrder   Optional[string]
+	Name     Optional[string]
+	SortBy   Optional[string]
+	SortOrder Optional[string]
 }
 
 func (f NodeFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f NodeFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }
 
-// InsuranceFilter for filtering insurances.
+// InsuranceFilter
 type InsuranceFilter struct {
 	TransportID             Optional[int32]
 	InsuranceDateFrom       Optional[time.Time]
@@ -242,10 +216,6 @@ type InsuranceFilter struct {
 	PaymentMax              Optional[decimal.Decimal]
 	CoverageMin             Optional[decimal.Decimal]
 	CoverageMax             Optional[decimal.Decimal]
-	CreatedFrom             Optional[time.Time]
-	CreatedTo               Optional[time.Time]
-	UpdatedFrom             Optional[time.Time]
-	UpdatedTo               Optional[time.Time]
 	SortBy                  Optional[string]
 	SortOrder               Optional[string]
 }
@@ -254,17 +224,17 @@ func (f InsuranceFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f InsuranceFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }
 
-// InspectionFilter for filtering inspections.
+// InspectionFilter
 type InspectionFilter struct {
 	TransportID              Optional[int32]
 	Status                   Optional[InspectionStatus]
@@ -272,10 +242,6 @@ type InspectionFilter struct {
 	InspectionDateTo         Optional[time.Time]
 	InspectionExpirationFrom Optional[time.Time]
 	InspectionExpirationTo   Optional[time.Time]
-	CreatedFrom              Optional[time.Time]
-	CreatedTo                Optional[time.Time]
-	UpdatedFrom              Optional[time.Time]
-	UpdatedTo                Optional[time.Time]
 	SortBy                   Optional[string]
 	SortOrder                Optional[string]
 }
@@ -284,12 +250,12 @@ func (f InspectionFilter) GetSortBy() string {
 	if f.SortBy.Set {
 		return f.SortBy.Value
 	}
-	return ""
+	return "created_at"
 }
 
 func (f InspectionFilter) GetSortOrder() string {
 	if f.SortOrder.Set {
 		return f.SortOrder.Value
 	}
-	return ""
+	return "DESC"
 }

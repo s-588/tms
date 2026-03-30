@@ -1,0 +1,1383 @@
+package ui
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/datepicker"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/label"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/radio"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+	"github.com/s-588/tms/internal/ui/components/table"
+)
+
+templ OrdersPage(orders []models.Order, page, totalPages int32) {
+	@OrdersViewSheet(models.Order{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2 my-4">
+			@OrdersFilter()
+			@ordersOperationsBar()
+			@OrdersExportDialog()
+		</div>
+		@OrdersTable(orders, page, totalPages, false)
+	</div>
+}
+
+// ---------------------------------------------------------------------
+// View / Edit Sheet
+// ---------------------------------------------------------------------
+templ OrdersViewSheet(order models.Order, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "orders-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		@OrdersViewSheetContent(order)
+	}
+}
+
+templ OrdersViewSheetContent(order models.Order) {
+	<div id="orders-sheet-content">
+		@sheet.Header() {
+			@sheet.Title() {
+				{ "Order #" + strconv.Itoa(int(order.OrderID)) }
+			}
+			@sheet.Description() {
+				{ "Status: " + string(order.Status) + " | Total: $" + order.TotalPrice.String() }
+			}
+		}
+		<form
+			id="order-edit-form"
+			class="space-y-6"
+			hx-put={ "/orders/" + strconv.Itoa(int(order.OrderID)) }
+			hx-target="#orders-sheet-content"
+		>
+			{{
+				formData := GetFormFromContext(ctx)
+				employees := GetEmployeesFromContext(ctx)
+
+				// Determine current status (from form if present, otherwise from order)
+				statusVal := ""
+				if fd, ok := formData["status"]; ok && fd.Value != "" {
+					statusVal = fd.Value
+				} else {
+					statusVal = string(order.Status)
+				}
+				isPending := statusVal == "pending"
+			}}
+			<!-- Hidden fields for IDs that are never editable – now properly hidden -->
+			<input type="hidden" name="transport_id" value={ strconv.Itoa(int(order.TransportID)) }/>
+			<input type="hidden" name="price_id" value={ strconv.Itoa(int(order.PriceID)) }/>
+			<input type="hidden" name="node_start" value={ strconv.Itoa(int(order.NodeIDStart)) }/>
+			<input type="hidden" name="node_end" value={ strconv.Itoa(int(order.NodeIDEnd)) }/>
+			<!-- Hidden field for employee_id (only included when NOT pending) -->
+			if !isPending {
+				<input type="hidden" name="employee_id" value={ strconv.Itoa(int(order.EmployeeID)) }/>
+			}
+			<div class="flex-1 p-4 space-y-6">
+				<!-- Order Details -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Order Details</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<!-- Client (always read‑only) -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Client</div>
+							<div class="font-medium">{ order.ClientName }</div>
+						}
+						<!-- Transport -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Transport</div>
+							<div class="font-medium">{ order.TransportLicensePlate }</div>
+						}
+						<!-- Driver (Employee) -->
+						<div>
+							<div class="text-sm text-muted-foreground">Driver</div>
+							if isPending {
+								{{ employeeIDField := formData["employee_id"] }}
+								@form.Item() {
+									@selectbox.SelectBox(selectbox.Props{ID: "order-edit-employee-id"}) {
+										@selectbox.Trigger(selectbox.TriggerProps{
+											Name:     "employee_id",
+											HasError: employeeIDField.Err != nil,
+										}) {
+											@selectbox.Value(selectbox.ValueProps{
+												Placeholder: "Select employee",
+											})
+										}
+										@selectbox.Content() {
+											@selectbox.Group() {
+												for _, e := range employees {
+													@selectbox.Item(selectbox.ItemProps{
+														Value:    fmt.Sprint(e.ID),
+														Selected: (employeeIDField.Err == nil && order.EmployeeID == e.ID) || (employeeIDField.Err != nil && employeeIDField.Value == fmt.Sprint(e.ID)),
+													}) {
+														{ e.Name }
+													}
+												}
+											}
+										}
+									}
+									if employeeIDField.Err != nil {
+										@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+											{ employeeIDField.Err.Error() }
+										}
+									}
+								}
+							} else {
+								<div class="font-medium">{ order.EmployeeName }</div>
+							}
+						</div>
+						<!-- Price Configuration -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Price Configuration</div>
+							<div class="font-medium">{ order.PriceCargoType }</div>
+						}
+					</div>
+				</div>
+				<!-- Shipment Details -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Shipment Details</h3>
+					<div class="grid grid-cols-2 gap-4">
+						<!-- Distance (read‑only) -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Distance (km)</div>
+							<div class="font-medium">{ strconv.FormatFloat(order.Distance, 'f', 2, 64) }</div>
+						}
+						<!-- Weight (always read‑only) -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Weight (kg)</div>
+							<div class="font-medium">{ order.Weight } kg</div>
+						}
+						<!-- Grade (read‑only) -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Grade</div>
+							<div class="font-medium">{ order.Grade }</div>
+						}
+						<!-- Total Price (read‑only) -->
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Total Price ($)</div>
+							<div class="font-medium">{ order.TotalPrice.String() }</div>
+						}
+					</div>
+				</div>
+				<!-- Status (always editable) -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Status</h3>
+					{{ statusField := formData["status"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "order-edit-status"}) {
+							Status
+						}
+						@selectbox.SelectBox(selectbox.Props{
+							ID: "order-edit-status",
+						}) {
+							@selectbox.Trigger(selectbox.TriggerProps{
+								Name:     "status",
+								HasError: statusField.Err != nil,
+							}) {
+								@selectbox.Value(selectbox.ValueProps{
+									Placeholder: "Select status",
+								})
+							}
+							@selectbox.Content() {
+								@selectbox.Group() {
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "pending",
+										Selected: (statusField.Err == nil && order.Status == "pending") || (statusField.Err != nil && statusField.Value == "pending"),
+									}) {
+										Pending
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "assigned",
+										Selected: (statusField.Err == nil && order.Status == "assigned") || (statusField.Err != nil && statusField.Value == "assigned"),
+									}) {
+										Assigned
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "in_progress",
+										Selected: (statusField.Err == nil && order.Status == "in_progress") || (statusField.Err != nil && statusField.Value == "in_progress"),
+									}) {
+										In Progress
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "completed",
+										Selected: (statusField.Err == nil && order.Status == "completed") || (statusField.Err != nil && statusField.Value == "completed"),
+									}) {
+										Completed
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "cancelled",
+										Selected: (statusField.Err == nil && order.Status == "cancelled") || (statusField.Err != nil && statusField.Value == "cancelled"),
+									}) {
+										Cancelled
+									}
+								}
+							}
+						}
+						if statusField.Err != nil {
+							@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+								{ statusField.Err.Error() }
+							}
+						}
+					}
+				</div>
+				<!-- Route Nodes (read‑only) wrapped in form.Item for consistency -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Route Nodes</h3>
+					<div class="grid grid-cols-2 gap-4">
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">Start Node</div>
+							<div class="font-medium">{ order.NodeStartName }</div>
+						}
+						@form.Item() {
+							<div class="text-sm text-muted-foreground">End Node</div>
+							<div class="font-medium">{ order.NodeEndName }</div>
+						}
+					</div>
+				</div>
+				<!-- Timestamps (read‑only) -->
+				<div class="space-y-2 pt-4 border-t text-xs text-muted-foreground">
+					<div>Created: { order.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { order.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+					if !order.DeletedAt.IsZero() {
+						<div class="text-destructive">Deleted: { order.DeletedAt.Format("Jan 2, 2006 15:04") }</div>
+					}
+				</div>
+			</div>
+		</form>
+		@sheet.Footer() {
+			<div class="space-y-4">
+				<!-- Download buttons -->
+				<div class="flex gap-2">
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Attributes: templ.Attributes{
+							"onclick": "window.location.href = '/orders/" + strconv.Itoa(int(order.OrderID)) + "/contract'",
+						},
+					}) {
+						Download Contract
+					}
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Attributes: templ.Attributes{
+							"onclick": "window.location.href = '/orders/" + strconv.Itoa(int(order.OrderID)) + "/certificate'",
+						},
+					}) {
+						Download Certificate
+					}
+				</div>
+				<!-- Delete, Reset, Save, Close -->
+				<div class="flex justify-between gap-2">
+					<div class="flex gap-2">
+						@button.Button(button.Props{
+							Variant: button.VariantDestructive,
+							Attributes: templ.Attributes{
+								"hx-delete":  "/orders/" + strconv.FormatInt(int64(order.OrderID), 10),
+								"hx-target":  "#orders-table",
+								"hx-confirm": "Are you sure you want to delete this order?",
+							},
+						}) {
+							Delete
+						}
+					</div>
+					<div class="flex gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeReset,
+							Variant: button.VariantGhost,
+							Attributes: templ.Attributes{
+								"form": "order-edit-form",
+							},
+						}) {
+							Reset
+						}
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+							Attributes: templ.Attributes{
+								"form": "order-edit-form",
+							},
+						}) {
+							Save Changes
+						}
+						@sheet.Close(sheet.CloseProps{For: "orders-sheet"}) {
+							@button.Button(button.Props{Variant: button.VariantOutline}) {
+								Close
+							}
+						}
+					</div>
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ viewOrderSheetButton(orderID int32) {
+	@sheet.Trigger(sheet.TriggerProps{For: "orders-sheet"}) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/orders/%d", orderID),
+				"hx-target": "#orders-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------
+templ OrdersTable(orders []models.Order, page, totalPages int32, swap bool) {
+	if swap {
+		<div class="overflow-x-auto" id="orders-table" hx-swap-oob="true">
+			@ordersTableReal(orders, page, totalPages)
+		</div>
+	} else {
+		<div class="overflow-x-auto" id="orders-table">
+			@ordersTableReal(orders, page, totalPages)
+		</div>
+	}
+}
+
+templ ordersTableReal(orders []models.Order, page, totalPages int32) {
+	@table.Table(table.Props{}) {
+		@table.Header() {
+			@table.Row() {
+				@table.Head() {
+					ID 
+				}
+				@table.Head() {
+					Client 
+				}
+				@table.Head() {
+					Transport 
+				}
+				@table.Head() {
+					Employee 
+				}
+				@table.Head() {
+					Weight (kg) 
+				}
+				@table.Head() {
+					Distance (km) 
+				}
+				@table.Head() {
+					Grade 
+				}
+				@table.Head() {
+					Total Price ($) 
+				}
+				@table.Head() {
+					Status 
+				}
+				@table.Head() {
+					Created 
+				}
+				@table.Head() {
+					Operations 
+				}
+			}
+		}
+		@table.Body() {
+			if len(orders) == 0 {
+				@table.Row() {
+					@table.Cell(table.CellProps{Attributes: templ.Attributes{"colspan": "10"}}) {
+						No orders found
+					}
+				}
+			} else {
+				for _, order := range orders {
+					@OrderRow(order)
+				}
+			}
+		}
+	}
+	@OrdersPagination(page, totalPages)
+}
+
+templ OrderRow(order models.Order) {
+	@table.Row() {
+		@table.Cell() {
+			{ order.OrderID }
+		}
+		@table.Cell() {
+			{ order.ClientName }
+		}
+		@table.Cell() {
+			{ order.TransportLicensePlate }
+		}
+		@table.Cell() {
+			{ order.EmployeeName }
+		}
+		@table.Cell() {
+			{ order.Weight } kg 
+		}
+		@table.Cell() {
+			{ strconv.FormatFloat(order.Distance, 'f', 2, 64) } km 
+		}
+		@table.Cell() {
+			{ order.Grade }
+		}
+		@table.Cell() {
+			$ { order.TotalPrice.String() }
+		}
+		@table.Cell() {
+			{ string(order.Status) }
+		}
+		@table.Cell() {
+			{ order.CreatedAt.Format("2006-01-02") }
+		}
+		@table.Cell() {
+			@viewOrderSheetButton(order.OrderID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Filter Dialog
+// ---------------------------------------------------------------------
+templ OrdersFilter() {
+	{{ filter := GetFilterFromContext(ctx) }}
+	@dialog.Dialog(dialog.Props{ID: "orders-filter-dialog"}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline}) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{Class: "max-w-xl"}) {
+			<form
+				class="space-y-6"
+				hx-get="/orders"
+				hx-push-url="true"
+				hx-target="#orders-table"
+			>
+				@dialog.Header() {
+					@dialog.Title() {
+						Filter orders
+					}
+				}
+				<div class="grid grid-cols-2 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-client-id"}) {
+							Client ID
+						}
+						@input.Input(input.Props{
+							ID:   "filter-client-id",
+							Name: "client_id",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.ClientID.Set {
+									return strconv.Itoa(int(filter.ClientID.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-transport-id"}) {
+							Transport ID
+						}
+						@input.Input(input.Props{
+							ID:   "filter-transport-id",
+							Name: "transport_id",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.TransportID.Set {
+									return strconv.Itoa(int(filter.TransportID.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-employee-id"}) {
+							Employee ID
+						}
+						@input.Input(input.Props{
+							ID:   "filter-employee-id",
+							Name: "employee_id",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.EmployeeID.Set {
+									return strconv.Itoa(int(filter.EmployeeID.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-price-id"}) {
+							Price ID
+						}
+						@input.Input(input.Props{
+							ID:   "filter-price-id",
+							Name: "price_id",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.PriceID.Set {
+									return strconv.Itoa(int(filter.PriceID.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-distance-min"}) {
+							Distance Min (km)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-distance-min",
+							Name: "distance_min",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.DistanceMin.Set {
+									return strconv.Itoa(int(filter.DistanceMin.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-distance-max"}) {
+							Distance Max (km)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-distance-max",
+							Name: "distance_max",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.DistanceMax.Set {
+									return strconv.Itoa(int(filter.DistanceMax.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-weight-min"}) {
+							Weight Min (kg)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-weight-min",
+							Name: "weight_min",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.WeightMin.Set {
+									return strconv.Itoa(int(filter.WeightMin.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-weight-max"}) {
+							Weight Max (kg)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-weight-max",
+							Name: "weight_max",
+							Type: input.TypeNumber,
+							Value: func() string {
+								if filter.WeightMax.Set {
+									return strconv.Itoa(int(filter.WeightMax.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-price-min"}) {
+							Total Price Min ($)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-price-min",
+							Name: "price_min",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.TotalPriceMin.Set {
+									return filter.TotalPriceMin.Value.String()
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-price-max"}) {
+							Total Price Max ($)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-price-max",
+							Name: "price_max",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.TotalPriceMax.Set {
+									return filter.TotalPriceMax.Value.String()
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-grade-min"}) {
+							Grade Min (0-5)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-grade-min",
+							Name: "grade_min",
+							Type: input.TypeNumber,
+							Attributes: templ.Attributes{
+								"min": "0",
+								"max": "5",
+							},
+							Value: func() string {
+								if filter.GradeMin.Set {
+									return strconv.Itoa(int(filter.GradeMin.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-grade-max"}) {
+							Grade Max (0-5)
+						}
+						@input.Input(input.Props{
+							ID:   "filter-grade-max",
+							Name: "grade_max",
+							Type: input.TypeNumber,
+							Attributes: templ.Attributes{
+								"min": "0",
+								"max": "5",
+							},
+							Value: func() string {
+								if filter.GradeMax.Set {
+									return strconv.Itoa(int(filter.GradeMax.Value))
+								}
+								return ""
+							}(),
+						})
+					}
+				</div>
+				@form.Item() {
+					@form.Label(form.LabelProps{}) {
+						Status
+					}
+					<div class="flex flex-wrap gap-4">
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-any",
+								Name:    "status",
+								Value:   "",
+								Checked: !filter.Status.Set,
+							})
+							@label.Label(label.Props{For: "status-any"}) {
+								Any
+							}
+						</div>
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-pending",
+								Name:    "status",
+								Value:   "pending",
+								Checked: filter.Status.Set && filter.Status.Value == "pending",
+							})
+							@label.Label(label.Props{For: "status-pending"}) {
+								Pending
+							}
+						</div>
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-assigned",
+								Name:    "status",
+								Value:   "assigned",
+								Checked: filter.Status.Set && filter.Status.Value == "assigned",
+							})
+							@label.Label(label.Props{For: "status-assigned"}) {
+								Assigned
+							}
+						</div>
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-in_progress",
+								Name:    "status",
+								Value:   "in_progress",
+								Checked: filter.Status.Set && filter.Status.Value == "in_progress",
+							})
+							@label.Label(label.Props{For: "status-in_progress"}) {
+								In Progress
+							}
+						</div>
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-completed",
+								Name:    "status",
+								Value:   "completed",
+								Checked: filter.Status.Set && filter.Status.Value == "completed",
+							})
+							@label.Label(label.Props{For: "status-completed"}) {
+								Completed
+							}
+						</div>
+						<div class="flex items-center gap-2">
+							@radio.Radio(radio.Props{
+								ID:      "status-cancelled",
+								Name:    "status",
+								Value:   "cancelled",
+								Checked: filter.Status.Set && filter.Status.Value == "cancelled",
+							})
+							@label.Label(label.Props{For: "status-cancelled"}) {
+								Cancelled
+							}
+						</div>
+					</div>
+				}
+				@form.Item() {
+					@form.Label(form.LabelProps{For: "filter-sort-by"}) {
+						Sort by
+					}
+					@selectbox.SelectBox(selectbox.Props{
+						ID: "filter-sort-by",
+					}) {
+						@selectbox.Trigger(selectbox.TriggerProps{
+							Name: "sort",
+						}) {
+							@selectbox.Value(selectbox.ValueProps{
+								Placeholder: "Select column",
+							})
+						}
+						@selectbox.Content() {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{Value: "order_id"}) {
+									ID
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "client_id"}) {
+									Client ID
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "transport_id"}) {
+									Transport ID
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "employee_id"}) {
+									Employee ID
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "distance"}) {
+									Distance
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "weight"}) {
+									Weight
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "total_price"}) {
+									Total Price
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "status"}) {
+									Status
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "grade"}) {
+									Grade
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "created_at"}) {
+									Created at
+								}
+							}
+						}
+					}
+				}
+				@dialog.Footer() {
+					<div class="flex justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</div>
+				}
+			</form>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Operations Bar (Add button)
+// ---------------------------------------------------------------------
+templ ordersOperationsBar() {
+	@OrdersAddDialog()
+}
+
+// ---------------------------------------------------------------------
+// Add Dialog
+// ---------------------------------------------------------------------
+templ OrdersAddDialog() {
+	@dialog.Dialog(dialog.Props{ID: "orders-add-dialog"}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline}) {
+				Add order
+			}
+		}
+		@dialog.Content(dialog.ContentProps{Class: "max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Add order
+				}
+				@dialog.Description() {
+					Add a new order. Click "Add" when you're done.
+				}
+			}
+			<div id="orders-add-content">
+				@OrdersAddContent(false)
+			</div>
+		}
+	}
+}
+
+templ OrdersAddContent(swap bool) {
+	if swap {
+		<div id="orders-add-content" hx-swap-oob="true">
+			@realOrdersAddContent()
+		</div>
+	} else {
+		<div id="orders-add-content">
+			@realOrdersAddContent()
+		</div>
+	}
+}
+
+templ realOrdersAddContent() {
+	{{ formData := GetFormFromContext(ctx) }}
+	{{ clients := GetClientsFromContext(ctx) }}
+	{{ transports := GetTransportsFromContext(ctx) }}
+	{{ employees := GetEmployeesFromContext(ctx) }}
+	{{ prices := GetPricesFromContext(ctx) }}
+	{{ nodes := GetNodesFromContext(ctx) }}
+	<form
+		hx-post="/orders"
+		hx-push-url="true"
+		class="flex gap-6 flex-col"
+	>
+		<!-- Client select -->
+		{{ clientIDField := formData["client_id"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-client-id"}) {
+				Client
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-client-id"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "client_id",
+					HasError: clientIDField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select client",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, c := range clients {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(c.ID),
+								Selected: clientIDField.Err == nil && clientIDField.Value == fmt.Sprint(c.ID),
+							}) {
+								{ c.Name }
+							}
+						}
+					}
+				}
+			}
+			if clientIDField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ clientIDField.Err.Error() }
+				}
+			}
+		}
+		<!-- Transport select -->
+		{{ transportIDField := formData["transport_id"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-transport-id"}) {
+				Transport
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-transport-id"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "transport_id",
+					HasError: transportIDField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select transport",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, t := range transports {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(t.ID),
+								Selected: transportIDField.Err == nil && transportIDField.Value == fmt.Sprint(t.ID),
+							}) {
+								{ t.Name }
+							}
+						}
+					}
+				}
+			}
+			if transportIDField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ transportIDField.Err.Error() }
+				}
+			}
+		}
+		<!-- Employee select -->
+		{{ employeeIDField := formData["employee_id"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-employee-id"}) {
+				Employee
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-employee-id"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "employee_id",
+					HasError: employeeIDField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select employee",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, e := range employees {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(e.ID),
+								Selected: employeeIDField.Err == nil && employeeIDField.Value == fmt.Sprint(e.ID),
+							}) {
+								{ e.Name }
+							}
+						}
+					}
+				}
+			}
+			if employeeIDField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ employeeIDField.Err.Error() }
+				}
+			}
+		}
+		<!-- Price select -->
+		{{ priceIDField := formData["price_id"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-price-id"}) {
+				Price configuration
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-price-id"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "price_id",
+					HasError: priceIDField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select price",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, p := range prices {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(p.ID),
+								Selected: priceIDField.Err == nil && priceIDField.Value == fmt.Sprint(p.ID),
+							}) {
+								{ p.Name }
+							}
+						}
+					}
+				}
+			}
+			if priceIDField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ priceIDField.Err.Error() }
+				}
+			}
+		}
+		<!-- Weight -->
+		{{ weightField := formData["weight"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-weight"}) {
+				Weight (kg)
+			}
+			if weightField.Err == nil {
+				@input.Input(input.Props{
+					ID:          "orders-add-weight",
+					Name:        "weight",
+					Type:        input.TypeNumber,
+					Value:       weightField.Value,
+					Placeholder: "Weight",
+				})
+			} else {
+				@input.Input(input.Props{
+					ID:          "orders-add-weight",
+					Name:        "weight",
+					Type:        input.TypeNumber,
+					Value:       weightField.Value,
+					Placeholder: "Weight",
+					HasError:    true,
+				})
+				@form.Description() {
+					Enter weight in kilograms.
+				}
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ weightField.Err.Error() }
+				}
+			}
+		}
+		<!-- Status -->
+		{{ statusField := formData["status"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-status"}) {
+				Status
+			}
+			@selectbox.SelectBox(selectbox.Props{
+				ID: "orders-add-status",
+			}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "status",
+					HasError: statusField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select status",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						@selectbox.Item(selectbox.ItemProps{
+							Value:    "pending",
+							Selected: statusField.Value == "pending",
+						}) {
+							Pending
+						}
+						@selectbox.Item(selectbox.ItemProps{
+							Value:    "assigned",
+							Selected: statusField.Value == "assigned",
+						}) {
+							Assigned
+						}
+						@selectbox.Item(selectbox.ItemProps{
+							Value:    "in_progress",
+							Selected: statusField.Value == "in_progress",
+						}) {
+							In Progress
+						}
+						@selectbox.Item(selectbox.ItemProps{
+							Value:    "completed",
+							Selected: statusField.Value == "completed",
+						}) {
+							Completed
+						}
+						@selectbox.Item(selectbox.ItemProps{
+							Value:    "cancelled",
+							Selected: statusField.Value == "cancelled",
+						}) {
+							Cancelled
+						}
+					}
+				}
+			}
+			if statusField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ statusField.Err.Error() }
+				}
+			}
+		}
+		<!-- Start Node (required) -->
+		{{ nodeStartField := formData["node_start"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-node-start"}) {
+				Start Node
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-node-start"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "node_start",
+					HasError: nodeStartField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select start node",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, n := range nodes {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(n.ID),
+								Selected: nodeStartField.Err == nil && nodeStartField.Value == fmt.Sprint(n.ID),
+							}) {
+								{ n.Name }
+							}
+						}
+					}
+				}
+			}
+			if nodeStartField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ nodeStartField.Err.Error() }
+				}
+			}
+		}
+		<!-- End Node (required) -->
+		{{ nodeEndField := formData["node_end"] }}
+		@form.Item() {
+			@form.Label(form.LabelProps{For: "orders-add-node-end"}) {
+				End Node
+			}
+			@selectbox.SelectBox(selectbox.Props{ID: "orders-add-node-end"}) {
+				@selectbox.Trigger(selectbox.TriggerProps{
+					Name:     "node_end",
+					HasError: nodeEndField.Err != nil,
+				}) {
+					@selectbox.Value(selectbox.ValueProps{
+						Placeholder: "Select end node",
+					})
+				}
+				@selectbox.Content() {
+					@selectbox.Group() {
+						for _, n := range nodes {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    fmt.Sprint(n.ID),
+								Selected: nodeEndField.Err == nil && nodeEndField.Value == fmt.Sprint(n.ID),
+							}) {
+								{ n.Name }
+							}
+						}
+					}
+				}
+			}
+			if nodeEndField.Err != nil {
+				@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+					{ nodeEndField.Err.Error() }
+				}
+			}
+		}
+		@button.Button(button.Props{
+			Type:    button.TypeSubmit,
+			Variant: button.VariantDefault,
+		}) {
+			Add
+		}
+	</form>
+}
+
+// ---------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------
+templ OrdersPagination(page, totalPages int32) {
+	{{ filter := GetFilterFromContext(ctx) }}
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	{{ query := buildOrderQueryString(filter) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#orders-table",
+						"hx-push-url": "true",
+						"hx-get":      buildOrderPageURL(query, p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#orders-table",
+							"hx-push-url": "true",
+							"hx-get":      buildOrderPageURL(query, 1),
+						},
+					}) {
+						1
+					}
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+			}
+			for _, pg := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#orders-table",
+							"hx-push-url": "true",
+							"hx-get":      buildOrderPageURL(query, pg),
+						},
+						IsActive: pg == p.CurrentPage,
+					}) {
+						{ fmt.Sprint(pg) }
+					}
+				}
+			}
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#orders-table",
+							"hx-push-url": "true",
+							"hx-get":      buildOrderPageURL(query, p.TotalPages),
+						},
+					}) {
+						{ fmt.Sprint(p.TotalPages) }
+					}
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#orders-table",
+						"hx-push-url": "true",
+						"hx-get":      buildOrderPageURL(query, p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+
+func buildOrderQueryString(filter models.OrderFilter) string {
+	params := []string{}
+	if filter.ClientID.Set {
+		params = append(params, "client_id="+strconv.Itoa(int(filter.ClientID.Value)))
+	}
+	if filter.TransportID.Set {
+		params = append(params, "transport_id="+strconv.Itoa(int(filter.TransportID.Value)))
+	}
+	if filter.EmployeeID.Set {
+		params = append(params, "employee_id="+strconv.Itoa(int(filter.EmployeeID.Value)))
+	}
+	if filter.PriceID.Set {
+		params = append(params, "price_id="+strconv.Itoa(int(filter.PriceID.Value)))
+	}
+	if filter.DistanceMin.Set {
+		params = append(params, "distance_min="+strconv.Itoa(int(filter.DistanceMin.Value)))
+	}
+	if filter.DistanceMax.Set {
+		params = append(params, "distance_max="+strconv.Itoa(int(filter.DistanceMax.Value)))
+	}
+	if filter.WeightMin.Set {
+		params = append(params, "weight_min="+strconv.Itoa(int(filter.WeightMin.Value)))
+	}
+	if filter.WeightMax.Set {
+		params = append(params, "weight_max="+strconv.Itoa(int(filter.WeightMax.Value)))
+	}
+	if filter.TotalPriceMin.Set {
+		params = append(params, "price_min="+filter.TotalPriceMin.Value.String())
+	}
+	if filter.TotalPriceMax.Set {
+		params = append(params, "price_max="+filter.TotalPriceMax.Value.String())
+	}
+	if filter.GradeMin.Set {
+		params = append(params, "grade_min="+strconv.Itoa(int(filter.GradeMin.Value)))
+	}
+	if filter.GradeMax.Set {
+		params = append(params, "grade_max="+strconv.Itoa(int(filter.GradeMax.Value)))
+	}
+	if filter.Status.Set && filter.Status.Value != "" {
+		params = append(params, "status="+string(filter.Status.Value))
+	}
+	if filter.SortBy.Set {
+		params = append(params, "sort="+filter.SortBy.Value)
+	}
+	if filter.SortOrder.Set {
+		params = append(params, "order="+filter.SortOrder.Value)
+	}
+	return strings.Join(params, "&")
+}
+
+func buildOrderPageURL(baseQuery string, page int) string {
+	if baseQuery == "" {
+		return fmt.Sprintf("/orders?page=%d", page)
+	}
+	return fmt.Sprintf("/orders?%s&page=%d", baseQuery, page)
+}
+
+templ OrdersExportDialog() {
+	{{ filter := GetFilterFromContext(ctx) }}
+	{{ query := buildOrderQueryString(filter) }}
+	@dialog.Dialog(dialog.Props{ID: "orders-export-dialog"}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline}) {
+				Export
+			}
+		}
+		@dialog.Content(dialog.ContentProps{Class: "max-w-md"}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Export Orders 
+				}
+				@dialog.Description() {
+					Select date range (optional) 
+				}
+			}
+			<div class="space-y-4 p-4">
+				<div>
+					<label class="block text-sm font-medium mb-1">Start Date</label>
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "export-start-date",
+						Name:  "start",
+						Value: time.Time{}, // empty by default
+					})
+				</div>
+				<div>
+					<label class="block text-sm font-medium mb-1">End Date</label>
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "export-end-date",
+						Name:  "end",
+						Value: time.Time{},
+					})
+				</div>
+				<div class="flex justify-end gap-2">
+					@button.Button(button.Props{
+						Variant: button.VariantOutline,
+						Attributes: templ.Attributes{
+							"onclick": "document.getElementById('orders-export-dialog-close').click()",
+						},
+					}) {
+						Cancel
+					}
+					@button.Button(button.Props{
+						Variant: button.VariantDefault,
+						Attributes: templ.Attributes{
+							"onclick": "exportOrders('" + query + "')",
+						},
+					}) {
+						Download
+					}
+				</div>
+			</div>
+			@dialog.Close(dialog.CloseProps{ID: "orders-export-dialog-close"}) {
+				<!-- hidden close button for programmatic cancel -->
+			}
+		}
+	}
+	<script type="text/javascript">
+	function exportOrders(baseQuery) {
+		const start = document.getElementById('export-start-date')?.value || '';
+		const end = document.getElementById('export-end-date')?.value || '';
+		let url = '/orders/export?' + baseQuery;
+		if (start) url += '&start=' + encodeURIComponent(start);
+		if (end) url += '&end=' + encodeURIComponent(end);
+		window.location.href = url;
+	}
+</script>
+}

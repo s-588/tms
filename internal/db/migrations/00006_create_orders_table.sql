@@ -31,8 +31,8 @@ CREATE TABLE orders (
     total_price  NUMERIC(10,2) NOT NULL
                     CHECK (total_price > 0),
     status       order_status NOT NULL DEFAULT 'pending',
-    node_id_start integer references nodes(node_id) on delete restrict,
-node_id_end integer references nodes(node_id) on delete restrict,
+    node_id_start integer references nodes(node_id) on delete restrict not null,
+node_id_end integer references nodes(node_id) on delete restrict not null,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ,
     deleted_at   TIMESTAMPTZ

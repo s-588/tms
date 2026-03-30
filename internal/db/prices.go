@@ -2,139 +2,162 @@ package db
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
+	"github.com/s-588/tms/internal/ui"
 	"github.com/shopspring/decimal"
 )
 
-// CreatePrice inserts a new price.
-func (db DB) CreatePrice(ctx context.Context, cargoType string, weight, distance int32) (models.Price, error) {
+type CreatePriceArgs struct {
+	CargoType string
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
+}
+
+func (db DB) CreatePrice(ctx context.Context, args CreatePriceArgs) (models.Price, error) {
 	arg := generated.CreatePriceParams{
-		CargoType: cargoType,
-		Weight:    weight,
-		Distance:  distance,
+		CargoType: args.CargoType,
+		Weight:    args.Weight,
+		Distance:  args.Distance,
 	}
 	genPrice, err := db.queries.CreatePrice(ctx, arg)
 	if err != nil {
-		return models.Price{}, err
+		return models.Price{}, parsePricesError(err)
 	}
 	return convertGeneratedPriceToModel(genPrice), nil
 }
 
-// GetPriceByID returns a price by ID.
-func (db DB) GetPriceByID(ctx context.Context, priceID int) (models.Price, error) {
-	genPrice, err := db.queries.GetPrice(ctx, int32(priceID))
+func (db DB) GetPriceByID(ctx context.Context, priceID int32) (models.Price, error) {
+	genPrice, err := db.queries.GetPrice(ctx, priceID)
 	if err != nil {
 		return models.Price{}, err
 	}
 	return convertGeneratedPriceToModel(genPrice), nil
 }
 
-// GetPriceByUnique returns a price by the unique combination (cargo_type, weight, distance).
-func (db DB) GetPriceByUnique(ctx context.Context, cargoType string, weight, distance int32) (models.Price, error) {
-	genPrice, err := db.queries.GetPriceByUnique(ctx, generated.GetPriceByUniqueParams{
+func (db DB) GetPriceByUnique(ctx context.Context, cargoType string, weight, distance decimal.Decimal) (models.Price, error) {
+	arg := generated.GetPriceByUniqueParams{
 		CargoType: cargoType,
 		Weight:    weight,
 		Distance:  distance,
-	})
+	}
+	genPrice, err := db.queries.GetPriceByUnique(ctx, arg)
 	if err != nil {
 		return models.Price{}, err
 	}
 	return convertGeneratedPriceToModel(genPrice), nil
 }
 
-// GetPrices returns a paginated list of prices matching the filter.
-func (db DB) GetPrices(ctx context.Context, limit, offset int, filter models.PriceFilter) ([]models.Price, int64, error) {
+func (db DB) GetPrices(ctx context.Context, page int32, filter models.PriceFilter) ([]models.Price, int32, error) {
 	arg := generated.GetPricesParams{
-		Limit:           int32(limit),
-		Offset:          int32(offset),
+		Page:            page,
 		CargoTypeFilter: ToStringPtr(filter.CargoType),
 		WeightMin:       ToInt32Ptr(filter.WeightMin),
 		WeightMax:       ToInt32Ptr(filter.WeightMax),
 		DistanceMin:     ToInt32Ptr(filter.DistanceMin),
 		DistanceMax:     ToInt32Ptr(filter.DistanceMax),
-		CreatedFrom:     ToPgTypeTimestamptz(filter.CreatedFrom),
-		CreatedTo:       ToPgTypeTimestamptz(filter.CreatedTo),
-		UpdatedFrom:     ToPgTypeTimestamptz(filter.UpdatedFrom),
-		UpdatedTo:       ToPgTypeTimestamptz(filter.UpdatedTo),
-		SortOrder:       ToStringPtr(filter.SortOrder),
-		SortBy:          ToStringPtr(filter.SortBy),
+		SortBy:          filter.SortBy.Value,
+		SortOrder:       filter.SortOrder.Value,
 	}
 	rows, err := db.queries.GetPrices(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var prices []models.Price
-	var totalCount int64
+	var totalPages int32
 	for _, row := range rows {
-		totalCount = row.TotalCount
+		totalPages = row.TotalCount
 		prices = append(prices, convertGeneratedPriceRowToModel(row))
 	}
-	return prices, totalCount, nil
+	return prices, totalPages, nil
 }
 
-// UpdatePrice updates mutable fields of a price.
-func (db DB) UpdatePrice(ctx context.Context, priceID int,
-	cargoType models.Optional[string],
-	weight, distance models.Optional[int32],
-) error {
+type UpdatePriceArgs struct {
+	PriceID   int32
+	CargoType string
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
+}
+
+func (db DB) UpdatePrice(ctx context.Context, args UpdatePriceArgs) error {
 	arg := generated.UpdatePriceParams{
-		PriceID:   int32(priceID),
-		CargoType: ToStringPtr(cargoType),
-		Weight:    ToInt32Ptr(weight),
-		Distance:  ToInt32Ptr(distance),
+		PriceID:   args.PriceID,
+		CargoType: args.CargoType,
+		Weight:    args.Weight,
+		Distance:  args.Distance,
 	}
-	return db.queries.UpdatePrice(ctx, arg)
+	return parsePricesError(db.queries.UpdatePrice(ctx, arg))
 }
 
-// SoftDeletePrice marks a price as deleted.
-func (db DB) SoftDeletePrice(ctx context.Context, priceID int) error {
-	return db.queries.SoftDeletePrice(ctx, int32(priceID))
+func (db DB) SoftDeletePrice(ctx context.Context, priceID int32) error {
+	return db.queries.SoftDeletePrice(ctx, priceID)
 }
 
-// HardDeletePrice permanently removes a price.
-func (db DB) HardDeletePrice(ctx context.Context, priceID int) error {
-	return db.queries.HardDeletePrice(ctx, int32(priceID))
+func (db DB) HardDeletePrice(ctx context.Context, priceID int32) error {
+	return db.queries.HardDeletePrice(ctx, priceID)
 }
 
-// RestorePrice removes the soft-delete mark.
-func (db DB) RestorePrice(ctx context.Context, priceID int) error {
-	return db.queries.RestorePrice(ctx, int32(priceID))
+func (db DB) RestorePrice(ctx context.Context, priceID int32) error {
+	return db.queries.RestorePrice(ctx, priceID)
 }
 
-// BulkSoftDeletePrices soft-deletes multiple prices.
-func (db DB) BulkSoftDeletePrices(ctx context.Context, priceIDs []int) error {
-	return db.queries.BulkSoftDeletePrices(ctx, convertIntSliceToInt32(priceIDs))
+func (db DB) BulkSoftDeletePrices(ctx context.Context, priceIDs []int32) error {
+	return db.queries.BulkSoftDeletePrices(ctx, priceIDs)
 }
 
-// BulkHardDeletePrices permanently deletes multiple prices.
-func (db DB) BulkHardDeletePrices(ctx context.Context, priceIDs []int) error {
-	return db.queries.BulkHardDeletePrices(ctx, convertIntSliceToInt32(priceIDs))
+func (db DB) BulkHardDeletePrices(ctx context.Context, priceIDs []int32) error {
+	return db.queries.BulkHardDeletePrices(ctx, priceIDs)
 }
 
-// convertGeneratedPriceToModel maps a generated.Price to models.Price.
+// conversion helpers
 func convertGeneratedPriceToModel(p generated.Price) models.Price {
 	return models.Price{
 		PriceID:   p.PriceID,
 		CargoType: p.CargoType,
-		Weight:    decimal.NewFromInt(int64(p.Weight)),
-		Distance:  decimal.NewFromInt(int64(p.Distance)),
+		Weight:    p.Weight,
+		Distance:  p.Distance,
 		CreatedAt: fromPgTimestamptz(p.CreatedAt),
 		UpdatedAt: fromPgTimestamptz(p.UpdatedAt),
 		DeletedAt: fromPgTimestamptz(p.DeletedAt),
 	}
 }
 
-// convertGeneratedPriceRowToModel maps a generated.GetPricesRow to models.Price.
 func convertGeneratedPriceRowToModel(row generated.GetPricesRow) models.Price {
 	return models.Price{
 		PriceID:   row.PriceID,
 		CargoType: row.CargoType,
-		Weight:    decimal.NewFromInt(int64(row.Weight)),
-		Distance:  decimal.NewFromInt(int64(row.Distance)),
+		Weight:    row.Weight,
+		Distance:  row.Distance,
 		CreatedAt: fromPgTimestamptz(row.CreatedAt),
 		UpdatedAt: fromPgTimestamptz(row.UpdatedAt),
 		DeletedAt: fromPgTimestamptz(row.DeletedAt),
 	}
+}
+func (db DB) ListPrices(ctx context.Context) ([]ui.ListItem, error) {
+	rows, err := db.queries.ListPrices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ui.ListItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, ui.ListItem{
+			ID:   r.PriceID,
+			Name: fmt.Sprintf("%s %s %s",r.CargoType,r.Weight,r.Distance),
+		})
+	}
+	return items, nil
+}
+
+func parsePricesError(err error) error {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
+		if pgErr.ConstraintName == "prices_cargo_type_weight_distance_key" {
+			return ErrDuplicatePrice
+		}
+		return fmt.Errorf("unhandled error: %w", err)
+	}
+	return fmt.Errorf("uknown error %w", err)
 }

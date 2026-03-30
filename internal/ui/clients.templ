@@ -6,7 +6,6 @@ import (
 	"github.com/s-588/tms/internal/ui/components/button"
 	"github.com/s-588/tms/internal/ui/components/table"
 
-	"github.com/s-588/tms/internal/ui/components/datepicker"
 	"github.com/s-588/tms/internal/ui/components/dialog"
 	"github.com/s-588/tms/internal/ui/components/form"
 	"github.com/s-588/tms/internal/ui/components/input"
@@ -177,9 +176,9 @@ templ ClientsViewSheetContent(client models.Client, formData Form) {
 					<h3 class="font-semibold text-lg">Client Score</h3>
 					<div class="flex items-center gap-2">
 						<div class="w-24 bg-muted rounded-full h-2">
-							<div class="bg-primary h-2 rounded-full" style={ "width: " + strconv.Itoa(int(client.Score*10)) + "%" }></div>
+							<div class="bg-primary h-2 rounded-full" style={ "width: " + strconv.FormatInt(int64(client.Score),10) + "%" }></div>
 						</div>
-						<span class="text-sm font-medium">{ strconv.Itoa(int(client.Score)) }/100</span>
+						<span class="text-sm font-medium">{ strconv.FormatInt(int64(client.Score),10) }/100</span>
 					</div>
 				</div>
 				<!-- Recent Orders + timestamps (read-only, unchanged) -->
@@ -487,33 +486,6 @@ templ ClientsFilter(filter models.ClientFilter) {
 						</div>
 					</div>
 				}
-				<!-- Created Range -->
-				<div class="grid grid-cols-2 gap-4">
-					@form.Item() {
-						@form.Label(form.LabelProps{
-							For: "created-from",
-						}) {
-							Created from
-						}
-						@datepicker.DatePicker(datepicker.Props{
-							ID:    "created-from",
-							Name:  "created_from",
-							Value: filter.CreatedFrom.Value,
-						})
-					}
-					@form.Item() {
-						@form.Label(form.LabelProps{
-							For: "created-to",
-						}) {
-							Created to
-						}
-						@datepicker.DatePicker(datepicker.Props{
-							ID:    "created-to",
-							Name:  "created_to",
-							Value: filter.CreatedTo.Value,
-						})
-					}
-				</div>
 				@form.Item() {
 					@form.Label(form.LabelProps{
 						For: "filter-sort-by",
@@ -597,9 +569,6 @@ templ clientsOperationsBar(addErrs Form) {
 }
 
 templ ClientsAddDialog(errs Form) {
-	<hx-partial
-		hx-target="#clients-add-dialog"
-	>
 		@dialog.Dialog(dialog.Props{
 			ID: "clients-add-dialog",
 		}) {
@@ -620,21 +589,28 @@ templ ClientsAddDialog(errs Form) {
 					@dialog.Description() {
 						Add a new client. Click "Add" when your done.
 					}
-					@ClientsAddContent(errs)
+					@ClientsAddContent(errs,false)
 				}
 			}
 		}
-	</hx-partial>
 }
 
-templ ClientsAddContent(userForm Form) {
-	<htmx-partial
-		hx-target="#clients-add-content"
-	>
+templ ClientsAddContent(userForm Form, swap bool) {
+if swap {
+<div hx-swap-oob="true" id="clients-add-content">
+	@clientsRealAddContent(userForm)
+</div>
+}else{
+<div id="clients-add-content">
+	@clientsRealAddContent(userForm)
+</div>
+}
+}
+
+templ clientsRealAddContent(userForm Form){
 		<form
 			hx-post="/clients"
 			hx-push-url="true"
-			id="clients-add-content"
 			class="flex gap-6 flex-col"
 		>
 			@form.Item(form.ItemProps{
@@ -724,7 +700,6 @@ templ ClientsAddContent(userForm Form) {
 				Add
 			}
 		</form>
-	</htmx-partial>
 }
 
 templ ClientsPagination(page, totalPages int32, filter models.ClientFilter) {

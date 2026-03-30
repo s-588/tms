@@ -37,7 +37,7 @@ CREATE TABLE inspections(
     transport_id integer not null references transports(transport_id) on delete cascade,
     inspection_date date not null,
     inspection_expiration date not null,
-    status inspection_status not null default 'overdue',
+    status inspection_status not null default 'ov.erdue',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ
@@ -71,8 +71,8 @@ CREATE INDEX idx_clients_deleted_at
 CREATE TABLE prices (
     price_id    SERIAL PRIMARY KEY,
     cargo_type  VARCHAR(50) NOT NULL,
-    weight      INTEGER NOT NULL,
-    distance    INTEGER NOT NULL,
+    weight      decimal(10,2) NOT NULL,
+    distance    decimal(10,2) NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ,
@@ -126,8 +126,9 @@ CREATE INDEX idx_employees_deleted_at
 -- 00005_create_nodes_table.sql
 CREATE TABLE nodes(
     node_id serial primary key,
+    address varchar(50) unique not null,
     name varchar(50),
-    geom point not null,
+    geom geography not null,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ,
     deleted_at          TIMESTAMPTZ
@@ -162,15 +163,15 @@ CREATE TABLE orders (
                     ON DELETE RESTRICT,
     grade        SMALLINT NOT NULL
                     CHECK (grade BETWEEN 0 AND 100),
-    distance     INTEGER NOT NULL
+    distance     double precision NOT NULL
                     CHECK (distance > 0),
     weight       INTEGER NOT NULL
                     CHECK (weight > 0),
     total_price  NUMERIC(10,2) NOT NULL
                     CHECK (total_price > 0),
     status       order_status NOT NULL DEFAULT 'pending',
-    node_id_start integer references nodes(node_id) on delete restrict,
-    node_id_end integer references nodes(node_id) on delete restrict,
+    node_id_start integer references nodes(node_id) on delete restrict not null,
+    node_id_end integer references nodes(node_id) on delete restrict not null,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ,
     deleted_at   TIMESTAMPTZ

@@ -2,122 +2,115 @@ package db
 
 import (
 	"context"
-	"time"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
+	"github.com/s-588/tms/internal/ui"
 )
 
-func (db DB) CreateTransport(ctx context.Context,
-	model string,
-	licensePlate string,
-	payloadCapacity int32,
-	fuelConsumption int32,
-	inspectionPassed bool,
-	inspectionDate time.Time,
-) (models.Transport, error) {
+type CreateTransportArgs struct {
+	Model           string
+	LicensePlate    string
+	PayloadCapacity int32
+	FuelConsumption int32
+}
+
+func (db DB) CreateTransport(ctx context.Context, args CreateTransportArgs) (models.Transport, error) {
 	arg := generated.CreateTransportParams{
-		Model:            model,
-		LicensePlate:     licensePlate,
-		PayloadCapacity:  payloadCapacity,
-		FuelConsumption:  fuelConsumption,
-		InspectionPassed: inspectionPassed,
-		InspectionDate:   ToPgTypeDateFromTime(inspectionDate),
+		Model:           args.Model,
+		LicensePlate:    args.LicensePlate,
+		PayloadCapacity: args.PayloadCapacity,
+		FuelConsumption: args.FuelConsumption,
 	}
 	genTransport, err := db.queries.CreateTransport(ctx, arg)
 	if err != nil {
-		return models.Transport{}, err
+		return models.Transport{}, parseTransportsError(err)
 	}
 	return convertGeneratedTransportToModel(genTransport), nil
 }
 
-func (db DB) GetTransportByID(ctx context.Context, transportID int) (models.Transport, error) {
-	genTransport, err := db.queries.GetTransport(ctx, int32(transportID))
+func (db DB) GetTransportByID(ctx context.Context, transportID int32) (models.Transport, error) {
+	genTransport, err := db.queries.GetTransport(ctx, transportID)
 	if err != nil {
 		return models.Transport{}, err
 	}
 	return convertGeneratedTransportToModel(genTransport), nil
 }
 
-func (db DB) GetTransports(ctx context.Context, limit, offset int, filter models.TransportFilter) ([]models.Transport, int64, error) {
+func (db DB) GetTransports(ctx context.Context, page int32, filter models.TransportFilter) ([]models.Transport, int32, error) {
 	arg := generated.GetTransportsParams{
-		Limit:                  int32(limit),
-		Offset:                 int32(offset),
-		ModelFilter:            ToStringPtr(filter.Model),
-		LicensePlateFilter:     ToStringPtr(filter.LicensePlate),
-		PayloadCapacityMin:     ToInt32Ptr(filter.PayloadCapacityMin),
-		PayloadCapacityMax:     ToInt32Ptr(filter.PayloadCapacityMax),
-		FuelConsumptionMin:     ToInt32Ptr(filter.FuelConsumptionMin),
-		FuelConsumptionMax:     ToInt32Ptr(filter.FuelConsumptionMax),
-		InspectionPassedFilter: ToBoolPtr(filter.InspectionPassed),
-		InspectionDateFrom:     ToPgTypeDate(filter.InspectionDateFrom),
-		InspectionDateTo:       ToPgTypeDate(filter.InspectionDateTo),
-		CreatedFrom:            ToPgTypeTimestamptz(filter.CreatedFrom),
-		CreatedTo:              ToPgTypeTimestamptz(filter.CreatedTo),
-		UpdatedFrom:            ToPgTypeTimestamptz(filter.UpdatedFrom),
-		UpdatedTo:              ToPgTypeTimestamptz(filter.UpdatedTo),
-		SortOrder:              ToStringPtr(filter.SortOrder),
-		SortBy:                 ToStringPtr(filter.SortBy),
+		Page:               page,
+		ModelFilter:        ToStringPtr(filter.Model),
+		LicensePlateFilter: ToStringPtr(filter.LicensePlate),
+		PayloadCapacityMin: ToInt32Ptr(filter.PayloadCapacityMin),
+		PayloadCapacityMax: ToInt32Ptr(filter.PayloadCapacityMax),
+		FuelConsumptionMin: ToInt32Ptr(filter.FuelConsumptionMin),
+		FuelConsumptionMax: ToInt32Ptr(filter.FuelConsumptionMax),
+		SortBy:             filter.SortBy.Value,
+		SortOrder:          filter.SortOrder.Value,
 	}
 	rows, err := db.queries.GetTransports(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var transports []models.Transport
-	var totalCount int64
+	var totalPages int32
 	for _, row := range rows {
-		totalCount = row.TotalCount
+		totalPages = row.TotalCount
 		transports = append(transports, convertGeneratedTransportRowToModel(row))
 	}
-	return transports, totalCount, nil
+	return transports, totalPages, nil
 }
 
-func (db DB) UpdateTransport(ctx context.Context,
-	transportID int,
-	model models.Optional[string],
-	licensePlate models.Optional[string],
-	payloadCapacity models.Optional[int32],
-	fuelConsumption models.Optional[int32],
-	inspectionPassed models.Optional[bool],
-	inspectionDate models.Optional[time.Time],
-) error {
+type UpdateTransportArgs struct {
+	TransportID     int32
+	Model           string
+	LicensePlate    string
+	PayloadCapacity int32
+	FuelConsumption int32
+}
+
+func (db DB) UpdateTransport(ctx context.Context, args UpdateTransportArgs) error {
 	arg := generated.UpdateTransportParams{
-		TransportID:      int32(transportID),
-		Model:            ToStringPtr(model),
-		LicensePlate:     ToStringPtr(licensePlate),
-		PayloadCapacity:  ToInt32Ptr(payloadCapacity),
-		FuelConsumption:  ToInt32Ptr(fuelConsumption),
-		InspectionPassed: ToBoolPtr(inspectionPassed),
-		InspectionDate:   ToPgTypeDate(inspectionDate),
+		TransportID:     args.TransportID,
+		Model:           args.Model,
+		LicensePlate:    args.LicensePlate,
+		PayloadCapacity: args.PayloadCapacity,
+		FuelConsumption: args.FuelConsumption,
 	}
-	return db.queries.UpdateTransport(ctx, arg)
+	return parseTransportsError(db.queries.UpdateTransport(ctx, arg))
 }
 
-func (db DB) SoftDeleteTransport(ctx context.Context, transportID int) error {
-	return db.queries.SoftDeleteTransport(ctx, int32(transportID))
+func (db DB) SoftDeleteTransport(ctx context.Context, transportID int32) error {
+	return db.queries.SoftDeleteTransport(ctx, transportID)
 }
 
-func (db DB) HardDeleteTransport(ctx context.Context, transportID int) error {
-	return db.queries.HardDeleteTransport(ctx, int32(transportID))
+func (db DB) HardDeleteTransport(ctx context.Context, transportID int32) error {
+	return db.queries.HardDeleteTransport(ctx, transportID)
 }
 
-func (db DB) RestoreTransport(ctx context.Context, transportID int) error {
-	return db.queries.RestoreTransport(ctx, int32(transportID))
+func (db DB) RestoreTransport(ctx context.Context, transportID int32) error {
+	return db.queries.RestoreTransport(ctx, transportID)
 }
 
-func (db DB) BulkSoftDeleteTransports(ctx context.Context, transportIDs []int) error {
-	return db.queries.BulkSoftDeleteTransports(ctx, convertIntSliceToInt32(transportIDs))
+func (db DB) BulkSoftDeleteTransports(ctx context.Context, transportIDs []int32) error {
+	return db.queries.BulkSoftDeleteTransports(ctx, transportIDs)
 }
 
-func (db DB) BulkHardDeleteTransports(ctx context.Context, transportIDs []int) error {
-	return db.queries.BulkHardDeleteTransports(ctx, convertIntSliceToInt32(transportIDs))
+func (db DB) BulkHardDeleteTransports(ctx context.Context, transportIDs []int32) error {
+	return db.queries.BulkHardDeleteTransports(ctx, transportIDs)
 }
 
-func (db DB) GetTransportOrders(ctx context.Context, transportID, limit, offset int) ([]models.Order, int64, error) {
+func (db DB) GetTransportOrders(ctx context.Context, transportID int32, limit, offset int32) ([]models.Order, int64, error) {
 	arg := generated.GetTransportOrdersParams{
-		TransportID: int32(transportID),
-		Limit:       int32(limit),
-		Offset:      int32(offset),
+		TransportID: transportID,
+		Limit:       limit,
+		Offset:      offset,
 	}
 	rows, err := db.queries.GetTransportOrders(ctx, arg)
 	if err != nil {
@@ -137,7 +130,7 @@ func convertGeneratedTransportToModel(t generated.Transport) models.Transport {
 	return models.Transport{
 		TransportID:     t.TransportID,
 		Model:           t.Model,
-		LicensePlate:    *t.LicensePlate,
+		LicensePlate:    fromStringPtr(t.LicensePlate),
 		PayloadCapacity: t.PayloadCapacity,
 		FuelConsumption: t.FuelConsumption,
 		CreatedAt:       fromPgTimestamptz(t.CreatedAt),
@@ -147,15 +140,10 @@ func convertGeneratedTransportToModel(t generated.Transport) models.Transport {
 }
 
 func convertGeneratedTransportRowToModel(row generated.GetTransportsRow) models.Transport {
-	var p string
-	if row.LicensePlate != nil {
-		p = *row.LicensePlate
-	}
 	return models.Transport{
-
 		TransportID:     row.TransportID,
 		Model:           row.Model,
-		LicensePlate:    p,
+		LicensePlate:    fromStringPtr(row.LicensePlate),
 		PayloadCapacity: row.PayloadCapacity,
 		FuelConsumption: row.FuelConsumption,
 		CreatedAt:       fromPgTimestamptz(row.CreatedAt),
@@ -176,10 +164,35 @@ func convertGetTransportOrdersRowToModel(row generated.GetTransportOrdersRow) mo
 		TotalPrice:  row.TotalPrice,
 		PriceID:     row.PriceID,
 		Status:      models.OrderStatus(row.Status),
-		NodeIDStart: row.NodeIDStart,
-		NodeIDEnd:   row.NodeIDEnd,
 		CreatedAt:   fromPgTimestamptz(row.CreatedAt),
 		UpdatedAt:   fromPgTimestamptz(row.UpdatedAt),
 		DeletedAt:   fromPgTimestamptz(row.DeletedAt),
 	}
+}
+
+func (db DB) ListFreeTransports(ctx context.Context) ([]ui.ListItem, error) {
+	rows, err := db.queries.ListFreeTransports(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ui.ListItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, ui.ListItem{
+			ID: r.TransportID,
+			Name: strings.Join([]string{r.Model,
+				fromStringPtr(r.LicensePlate),
+				strconv.FormatInt(int64(r.PayloadCapacity), 10), "kg"}, " "),
+		})
+	}
+	return items, nil
+}
+
+func parseTransportsError(err error) error {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
+		if pgErr.ConstraintName == "transports_license_plate_key" {
+			return ErrDuplicateLicense
+		}
+		return fmt.Errorf("unhandled error: %w", err)
+	}
+	return fmt.Errorf("uknown error: %w", err)
 }

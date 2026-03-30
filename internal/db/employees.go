@@ -2,22 +2,34 @@ package db
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
+	"github.com/s-588/tms/internal/ui"
 	"github.com/shopspring/decimal"
 )
 
-func (db DB) CreateEmployee(ctx context.Context, emp models.Employee) (models.Employee, error) {
+type CreateEmployeeArgs struct {
+	Name              string
+	Status            models.EmployeeStatus
+	JobTitle          models.EmployeeJobTitle
+	HireDate          time.Time
+	Salary            decimal.Decimal
+	LicenseIssued     time.Time
+	LicenseExpiration time.Time
+}
+
+func (db DB) CreateEmployee(ctx context.Context, args CreateEmployeeArgs) (models.Employee, error) {
 	arg := generated.CreateEmployeeParams{
-		Name:              emp.Name,
-		Status:            generated.EmployeeStatus(emp.Status),
-		JobTitle:          string(emp.JobTitle),
-		HireDate:          ToPgTypeDateFromTime(emp.HireDate),
-		Salary:            emp.Salary,
-		LicenseIssued:     ToPgTypeDateFromTime(emp.LicenseIssued),
-		LicenseExpiration: ToPgTypeDateFromTime(emp.LicenseExpiration),
+		Name:              args.Name,
+		Status:            generated.EmployeeStatus(args.Status),
+		JobTitle:          generated.EmployeeJobTitle(args.JobTitle),
+		HireDate:          ToPgTypeDateFromTime(args.HireDate),
+		Salary:            args.Salary,
+		LicenseIssued:     ToPgTypeDateFromTime(args.LicenseIssued),
+		LicenseExpiration: ToPgTypeDateFromTime(args.LicenseExpiration),
 	}
 	genEmployee, err := db.queries.CreateEmployee(ctx, arg)
 	if err != nil {
@@ -26,91 +38,81 @@ func (db DB) CreateEmployee(ctx context.Context, emp models.Employee) (models.Em
 	return convertGeneratedEmployeeToModel(genEmployee), nil
 }
 
-func (db DB) GetEmployeeByID(ctx context.Context, employeeID int) (models.Employee, error) {
-	genEmployee, err := db.queries.GetEmployee(ctx, int32(employeeID))
+func (db DB) GetEmployeeByID(ctx context.Context, employeeID int32) (models.Employee, error) {
+	genEmployee, err := db.queries.GetEmployee(ctx, employeeID)
 	if err != nil {
 		return models.Employee{}, err
 	}
 	return convertGeneratedEmployeeToModel(genEmployee), nil
 }
 
-func (db DB) GetEmployees(ctx context.Context, limit, offset int, filter models.EmployeeFilter) ([]models.Employee, int64, error) {
+func (db DB) GetEmployees(ctx context.Context, page int32, filter models.EmployeeFilter) ([]models.Employee, int32, error) {
 	arg := generated.GetEmployeesParams{
-		Limit:          int32(limit),
-		Offset:         int32(offset),
+		Page:           page,
 		NameFilter:     ToStringPtr(filter.Name),
-		JobTitleFilter: ToStringPtr(filter.JobTitle),
+		JobTitleFilter: ToNullEmployeeJobTitle(filter.JobTitle),
 		StatusFilter:   ToNullEmployeeStatus(filter.Status),
 		SalaryMin:      ToPgTypeNumeric(filter.SalaryMin),
 		SalaryMax:      ToPgTypeNumeric(filter.SalaryMax),
-		CreatedFrom:    ToPgTypeTimestamptz(filter.CreatedFrom),
-		CreatedTo:      ToPgTypeTimestamptz(filter.CreatedTo),
-		UpdatedFrom:    ToPgTypeTimestamptz(filter.UpdatedFrom),
-		UpdatedTo:      ToPgTypeTimestamptz(filter.UpdatedTo),
-		SortOrder:      ToStringPtr(filter.SortOrder),
-		SortBy:         ToStringPtr(filter.SortBy),
+		SortBy:         filter.GetSortBy(),
+		SortOrder:      filter.GetSortOrder(),
 	}
 	rows, err := db.queries.GetEmployees(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var employees []models.Employee
-	var totalCount int64
+	var totalPages int32
 	for _, row := range rows {
-		totalCount = row.TotalCount
+		totalPages = row.TotalCount
 		employees = append(employees, convertGeneratedEmployeeRowToModel(row))
 	}
-	return employees, totalCount, nil
+	return employees, totalPages, nil
 }
 
-// TODO: return updated employee
-func (db DB) UpdateEmployee(ctx context.Context,
-	employeeID int,
-	name models.Optional[string],
-	status models.Optional[models.EmployeeStatus],
-	jobTitle models.Optional[models.EmployeeJobTitle],
-	hireDate models.Optional[time.Time],
-	salary models.Optional[decimal.Decimal],
-	licenseIssued models.Optional[time.Time],
-	licenseExpiration models.Optional[time.Time],
-) error {
+type UpdateEmployeeArgs struct {
+	EmployeeID        int32
+	Name              string
+	Status            models.EmployeeStatus
+	JobTitle          models.EmployeeJobTitle
+	HireDate          time.Time
+	Salary            decimal.Decimal
+	LicenseIssued     time.Time
+	LicenseExpiration time.Time
+}
+
+func (db DB) UpdateEmployee(ctx context.Context, args UpdateEmployeeArgs) error {
 	arg := generated.UpdateEmployeeParams{
-		EmployeeID: int32(employeeID),
-		Name:       ToStringPtr(name),
-		Status:     ToNullEmployeeStatus(status),
-		JobTitle: func() *string {
-			if jobTitle.Set {
-				s := string(jobTitle.Value)
-				return &s
-			}
-			return nil
-		}(),
-		HireDate:          ToPgTypeDate(hireDate),
-		Salary:            ToPgTypeNumeric(salary),
-		LicenseIssued:     ToPgTypeDate(licenseIssued),
-		LicenseExpiration: ToPgTypeDate(licenseExpiration),
+		EmployeeID:        args.EmployeeID,
+		Name:              args.Name,
+		Status:            generated.EmployeeStatus(args.Status),
+		JobTitle:          generated.EmployeeJobTitle(args.JobTitle),
+		HireDate:          ToPgTypeDateFromTime(args.HireDate),
+		Salary:            args.Salary,
+		LicenseIssued:     ToPgTypeDateFromTime(args.LicenseIssued),
+		LicenseExpiration: ToPgTypeDateFromTime(args.LicenseExpiration),
 	}
 	return db.queries.UpdateEmployee(ctx, arg)
 }
 
-func (db DB) SoftDeleteEmployee(ctx context.Context, employeeID int) error {
-	return db.queries.SoftDeleteEmployee(ctx, int32(employeeID))
+func (db DB) SoftDeleteEmployee(ctx context.Context, employeeID int32) error {
+	return db.queries.SoftDeleteEmployee(ctx, employeeID)
 }
 
-func (db DB) HardDeleteEmployee(ctx context.Context, employeeID int) error {
-	return db.queries.HardDeleteEmployee(ctx, int32(employeeID))
+func (db DB) HardDeleteEmployee(ctx context.Context, employeeID int32) error {
+	return db.queries.HardDeleteEmployee(ctx, employeeID)
 }
 
-func (db DB) RestoreEmployee(ctx context.Context, employeeID int) error {
-	return db.queries.RestoreEmployee(ctx, int32(employeeID))
+func (db DB) RestoreEmployee(ctx context.Context, employeeID int32) error {
+	return db.queries.RestoreEmployee(ctx, employeeID)
 }
 
-func (db DB) BulkSoftDeleteEmployees(ctx context.Context, employeeIDs []int) error {
-	return db.queries.BulkSoftDeleteEmployees(ctx, convertIntSliceToInt32(employeeIDs))
+func (db DB) BulkSoftDeleteEmployees(ctx context.Context, employeeIDs []int32) error {
+	return db.queries.BulkSoftDeleteEmployees(ctx, employeeIDs)
 }
 
-func (db DB) BulkHardDeleteEmployees(ctx context.Context, employeeIDs []int) error {
-	return db.queries.BulkHardDeleteEmployees(ctx, convertIntSliceToInt32(employeeIDs))
+func (db DB) BulkHardDeleteEmployees(ctx context.Context, employeeIDs []int32) error {
+	return db.queries.BulkHardDeleteEmployees(ctx, employeeIDs)
 }
 
 // conversion helpers
@@ -144,4 +146,19 @@ func convertGeneratedEmployeeRowToModel(row generated.GetEmployeesRow) models.Em
 		UpdatedAt:         fromPgTimestamptz(row.UpdatedAt),
 		DeletedAt:         fromPgTimestamptz(row.DeletedAt),
 	}
+}
+
+func (db DB) ListFreeDrivers(ctx context.Context) ([]ui.ListItem, error) {
+	rows, err := db.queries.ListFreeDrivers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ui.ListItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, ui.ListItem{
+			ID:   r.EmployeeID,
+			Name: strings.Join([]string{r.Name, string(r.Status), string(r.JobTitle)}, " "),
+		})
+	}
+	return items, nil
 }

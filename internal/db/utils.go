@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -272,4 +273,34 @@ func pointToString(p pgtype.Point) string {
 		return ""
 	}
 	return fmt.Sprintf("(%f,%f)", p.P.X, p.P.Y)
+}
+
+func ToFloat64Ptr(o models.Optional[float64]) *float64 {
+	if o.Set {
+		return &o.Value
+	}
+	return nil
+}
+
+func toFloat64(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case string:
+		f, _ := strconv.ParseFloat(val, 64)
+		return f
+	case []byte:
+		f, _ := strconv.ParseFloat(string(val), 64)
+		return f
+	default:
+		return 0
+	}
 }

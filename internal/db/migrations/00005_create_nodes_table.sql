@@ -2,6 +2,7 @@
 -- +goose StatementBegin
 create table nodes(
     node_id serial primary key,
+    address varchar(50) unique not null,
     name varchar(50),
     geom point not null,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -10,6 +10,9 @@ sql:
         sql_package: "pgx/v5"
         emit_pointers_for_null_types: true
         overrides:
+          - db_type: "geography"
+            go_type: 
+              type: "[]byte"
           - db_type: "numeric"
             go_type:
               import: "github.com/shopspring/decimal"

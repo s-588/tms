@@ -10,6 +10,8 @@ import "github.com/s-588/tms/internal/ui/components/calendar"
 import "github.com/s-588/tms/internal/ui/components/slider"
 import "github.com/s-588/tms/internal/ui/components/toast"
 import "github.com/s-588/tms/internal/ui/components/selectbox"
+import "github.com/s-588/tms/internal/ui/components/button"
+import "github.com/s-588/tms/internal/ui/utils"
 
 templ Index() {
 	@Head()
@@ -40,24 +42,26 @@ templ Head() {
 templ Body() {
 	<body>
 		@PageSidebar()
-		<div id="toast"></div>
+		<div id="toast-container"></div>
 	</body>
 }
 
 templ Toast(msgType, title, msg string) {
-	@toast.Toast(toast.Props{
-		ID:    "toast",
-		Title: title,
-		Attributes: templ.Attributes{
-			"hx-swap-oob": "true",
-		},
-		Variant:       toast.Variant(msgType),
-		Position:      toast.PositionBottomRight,
-		Description:   msg,
-		Dismissible:   true,
-		ShowIndicator: true,
-		Icon:          true,
-	})
+{{
+	id := utils.RandomID()
+}}
+<div id={ id } hx-swap-oob="beforeend:#toast-container">
+        @toast.Toast(toast.Props{
+            ID:            id,
+            Title:         title,
+            Variant:       toast.Variant(msgType),
+            Position:      toast.PositionBottomRight,
+            Description:   msg,
+            Dismissible:   true,
+            ShowIndicator: true,
+            Icon:          true,
+        })
+    </div>
 }
 
 templ PageSidebar() {
@@ -89,7 +93,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/clients/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -101,7 +105,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/employees/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -113,7 +117,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/orders/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -125,7 +129,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/prices/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -137,7 +141,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/transports/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -149,7 +153,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/nodes/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -161,7 +165,7 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/insurances/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
@@ -173,69 +177,12 @@ templ PageSidebar() {
 							@sidebar.MenuButton(sidebar.MenuButtonProps{
 								Attributes: templ.Attributes{
 									"hx-get":      "/inspections/page",
-									"hx-target":   "#main",
+									"hx-target":   "main",
 									"hx-push-url": "true",
 								},
 							}) {
 								@icon.Search(icon.Props{Class: "size-4"})
 								<span>Inspections</span>
-							}
-						}
-					}
-				}
-				@sidebar.Separator()
-				<!-- OPERATIONS -->
-				@sidebar.Group() {
-					@sidebar.GroupLabel() {
-						Operations
-					}
-					@sidebar.Menu() {
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Attributes: templ.Attributes{
-									"hx-get":      "/export",
-									"hx-target":   "#main",
-									"hx-push-url": "true",
-								},
-							}) {
-								@icon.Download(icon.Props{Class: "size-4"})
-								<span>Export data</span>
-							}
-						}
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Attributes: templ.Attributes{
-									"hx-get":      "/import",
-									"hx-target":   "#main",
-									"hx-push-url": "true",
-								},
-							}) {
-								@icon.Upload(icon.Props{Class: "size-4"})
-								<span>Import data</span>
-							}
-						}
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Attributes: templ.Attributes{
-									"hx-get":      "/reports",
-									"hx-target":   "#main",
-									"hx-push-url": "true",
-								},
-							}) {
-								@icon.ChartBar(icon.Props{Class: "size-4"})
-								<span>View reports</span>
-							}
-						}
-						@sidebar.MenuItem() {
-							@sidebar.MenuButton(sidebar.MenuButtonProps{
-								Attributes: templ.Attributes{
-									"hx-get":      "/settings",
-									"hx-target":   "#main",
-									"hx-push-url": "true",
-								},
-							}) {
-								@icon.Settings(icon.Props{Class: "size-4"})
-								<span>System settings</span>
 							}
 						}
 					}
@@ -255,91 +202,50 @@ templ PageSidebar() {
 	}
 }
 
-templ navButton(url string, label string, class string) {
-	<a
-		hx-get={ url }
-		hx-target="main"
-		hx-push-url="true"
-		class={ "block w-full text-white font-medium py-2 px-4 rounded-xl text-center transition " + class }
-	>
-		{ label }
-	</a>
-}
-
 templ MainPage() {
 	<main id="main">
-		<!-- Hero -->
-		<section class="bg-blue-600 text-white py-20">
+		<!-- Modern Hero Section -->
+		<section class="bg-gradient-to-br from-blue-600 to-indigo-700 text-white py-16 rounded-2xl shadow-lg mb-8">
 			<div class="max-w-4xl mx-auto text-center px-4">
-				<h1 class="text-4xl md:text-5xl font-bold mb-4">
-					Welcome to Transportation Management System
+				<h1 class="text-4xl md:text-5xl font-bold mb-3">
+					Transportation Management System
 				</h1>
-				<p class="text-lg text-blue-100">
-					Manage your transportation operations with efficiency
+				<p class="text-lg text-blue-100 max-w-2xl mx-auto">
+					Streamline your logistics – manage clients, orders, fleets, and inspections from one central hub.
 				</p>
 			</div>
 		</section>
-		<!-- Content -->
-		<section class="py-12">
-			<div class="max-w-7xl mx-auto px-4 grid md:grid-cols-2 gap-8">
-				<!-- Data Management Card -->
-				<div class="bg-white rounded-2xl shadow-lg p-6">
-					<h2 class="text-xl font-semibold mb-4">Data Management</h2>
-					<p class="text-gray-500 mb-6">
-						Select a category to view and manage data:
-					</p>
-					<div class="space-y-3">
-						@navButton("/clients", "Clients", "bg-blue-600 hover:bg-blue-700")
-						@navButton("/employees", "Employees", "bg-cyan-600 hover:bg-cyan-700")
-						@navButton("/orders", "Orders", "bg-green-600 hover:bg-green-700")
-						@navButton("/prices", "Prices", "bg-indigo-600 hover:bg-indigo-700")
-						@navButton("/transports", "Transports", "bg-red-600 hover:bg-red-700")
-					</div>
-				</div>
-				<!-- Operations Card -->
-				<div class="bg-white rounded-2xl shadow-lg p-6">
-					<h2 class="text-xl font-semibold mb-4">Operations</h2>
-					<h3 class="text-gray-600 mb-3 font-medium">Create New Record:</h3>
-					<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-						@navButton("/clients/new", "New Client", "bg-blue-600 hover:bg-blue-700")
-						@navButton("/employees/new", "New Employee", "bg-cyan-600 hover:bg-cyan-700")
-						@navButton("/fuels/new", "New Fuel", "bg-amber-500 hover:bg-amber-600")
-						@navButton("/orders/new", "New Order", "bg-green-600 hover:bg-green-700")
-						@navButton("/prices/new", "New Price", "bg-indigo-600 hover:bg-indigo-700")
-						@navButton("/transports/new", "New Transport", "bg-red-600 hover:bg-red-700")
-					</div>
-					<div class="space-y-3">
-						<button class="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-medium py-2 rounded-xl">
-							Export Data
-						</button>
-						<button class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-xl">
-							Import Data
-						</button>
-						<button class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 rounded-xl">
-							View Reports
-						</button>
-						<button class="w-full bg-gray-800 hover:bg-gray-900 text-white font-medium py-2 rounded-xl">
-							System Settings
-						</button>
-					</div>
-				</div>
+
+		<!-- Data Management Grid -->
+		<section>
+			<h2 class="text-2xl font-semibold text-gray-800 mb-6">Data Management</h2>
+			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+				@dataCard("/clients/page", "Clients", icon.Users, "bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200", "size-8")
+				@dataCard("/employees/page", "Employees", icon.User, "bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border-cyan-200", "size-8")
+				@dataCard("/orders/page", "Orders", icon.FileText, "bg-green-50 hover:bg-green-100 text-green-700 border-green-200", "size-8")
+				@dataCard("/prices/page", "Prices", icon.Tag, "bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200", "size-8")
+				@dataCard("/transports/page", "Transports", icon.Truck, "bg-red-50 hover:bg-red-100 text-red-700 border-red-200", "size-8")
+				@dataCard("/nodes/page", "Nodes", icon.MapPin, "bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200", "size-8")
+				@dataCard("/insurances/page", "Insurances", icon.Shield, "bg-yellow-50 hover:bg-yellow-100 text-yellow-700 border-yellow-200", "size-8")
+				@dataCard("/inspections/page", "Inspections", icon.Search, "bg-orange-50 hover:bg-orange-100 text-orange-700 border-orange-200", "size-8")
 			</div>
 		</section>
 	</main>
 }
 
-templ PageFooter() {
-	<div class="has-text-centered mt-6">
-		<div class="box is-light">
-			<p class="subtitle is-6">
-				<span class="icon has-text-info">
-					<i class="fas fa-info-circle"></i>
-				</span>
-				Select a table to view data or an action to perform operations.
-				<span class="icon has-text-info">
-					<i class="fas fa-info-circle"></i>
-				</span>
-			</p>
-		</div>
-	</div>
+// dataCard renders a large, clickable card with an icon and label.
+// It uses the button component as a base, styled as a card with custom colors.
+templ dataCard(url, label string, iconComponent func(...icon.Props) templ.Component, colorClasses string, iconSize string) {
+	@button.Button(button.Props{
+	Class: "flex-col h-auto py-6 w-full border-2 rounded-xl shadow-sm transition-all duration-200 hover:shadow-md " + colorClasses,
+		Variant: button.VariantOutline, // outline gives us the border and subtle background
+		Attributes: templ.Attributes{
+			"hx-get":       url,
+			"hx-target":    "main",
+			"hx-push-url":  "true",
+		},
+	}) {
+		@iconComponent(icon.Props{Class: iconSize + " mb-2"})
+		<span class="font-medium text-base">{ label }</span>
+	}
 }

@@ -120,12 +120,12 @@ type GetTransportOrdersRow struct {
 	EmployeeID  int32
 	PriceID     int32
 	Grade       int16
-	Distance    int32
+	Distance    float64
 	Weight      int32
 	TotalPrice  decimal.Decimal
 	Status      OrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
+	NodeIDStart int32
+	NodeIDEnd   int32
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
 	DeletedAt   pgtype.Timestamptz
@@ -171,7 +171,7 @@ func (q *Queries) GetTransportOrders(ctx context.Context, arg GetTransportOrders
 
 const getTransports = `-- name: GetTransports :many
 SELECT transport_id, model, license_plate, payload_capacity, fuel_consumption, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM transports
 WHERE deleted_at IS NULL
   AND ($1::text IS NULL OR model ILIKE '%' || $1::text || '%')
@@ -180,61 +180,42 @@ WHERE deleted_at IS NULL
   AND ($4::int IS NULL OR payload_capacity <= $4::int)
   AND ($5::int IS NULL OR fuel_consumption >= $5::int)
   AND ($6::int IS NULL OR fuel_consumption <= $6::int)
-  AND ($7::boolean IS NULL OR inspection_passed = $7::boolean)
-  AND ($8::date IS NULL OR inspection_date >= $8::date)
-  AND ($9::date IS NULL OR inspection_date <= $9::date)
-  AND ($10::timestamptz IS NULL OR created_at >= $10::timestamptz)
-  AND ($11::timestamptz IS NULL OR created_at <= $11::timestamptz)
-  AND ($12::timestamptz IS NULL OR updated_at >= $12::timestamptz)
-  AND ($13::timestamptz IS NULL OR updated_at <= $13::timestamptz)
 ORDER BY
-    CASE WHEN $14::text = 'ASC' THEN
-        CASE $15::text
+    CASE WHEN $7::text = 'ASC' THEN
+        CASE $8::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'model' THEN model
             WHEN 'license_plate' THEN license_plate
             WHEN 'payload_capacity' THEN payload_capacity::text
             WHEN 'fuel_consumption' THEN fuel_consumption::text
-            WHEN 'inspection_passed' THEN inspection_passed::text
-            WHEN 'inspection_date' THEN inspection_date::text
             WHEN 'created_at' THEN created_at::text
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $14::text = 'DESC' THEN
-        CASE $15::text
+    CASE WHEN $7::text = 'DESC' THEN
+        CASE $8::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'model' THEN model
             WHEN 'license_plate' THEN license_plate
             WHEN 'payload_capacity' THEN payload_capacity::text
             WHEN 'fuel_consumption' THEN fuel_consumption::text
-            WHEN 'inspection_passed' THEN inspection_passed::text
-            WHEN 'inspection_date' THEN inspection_date::text
             WHEN 'created_at' THEN created_at::text
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $17 OFFSET $16
+LIMIT 20 OFFSET 20 * ($9::integer - 1)
 `
 
 type GetTransportsParams struct {
-	ModelFilter            *string
-	LicensePlateFilter     *string
-	PayloadCapacityMin     *int32
-	PayloadCapacityMax     *int32
-	FuelConsumptionMin     *int32
-	FuelConsumptionMax     *int32
-	InspectionPassedFilter *bool
-	InspectionDateFrom     pgtype.Date
-	InspectionDateTo       pgtype.Date
-	CreatedFrom            pgtype.Timestamptz
-	CreatedTo              pgtype.Timestamptz
-	UpdatedFrom            pgtype.Timestamptz
-	UpdatedTo              pgtype.Timestamptz
-	SortOrder              *string
-	SortBy                 *string
-	Offset                 int32
-	Limit                  int32
+	ModelFilter        *string
+	LicensePlateFilter *string
+	PayloadCapacityMin *int32
+	PayloadCapacityMax *int32
+	FuelConsumptionMin *int32
+	FuelConsumptionMax *int32
+	SortOrder          string
+	SortBy             string
+	Page               int32
 }
 
 type GetTransportsRow struct {
@@ -246,7 +227,7 @@ type GetTransportsRow struct {
 	CreatedAt       pgtype.Timestamptz
 	UpdatedAt       pgtype.Timestamptz
 	DeletedAt       pgtype.Timestamptz
-	TotalCount      int64
+	TotalCount      int32
 }
 
 func (q *Queries) GetTransports(ctx context.Context, arg GetTransportsParams) ([]GetTransportsRow, error) {
@@ -257,17 +238,9 @@ func (q *Queries) GetTransports(ctx context.Context, arg GetTransportsParams) ([
 		arg.PayloadCapacityMax,
 		arg.FuelConsumptionMin,
 		arg.FuelConsumptionMax,
-		arg.InspectionPassedFilter,
-		arg.InspectionDateFrom,
-		arg.InspectionDateTo,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -327,24 +300,20 @@ func (q *Queries) SoftDeleteTransport(ctx context.Context, transportID int32) er
 const updateTransport = `-- name: UpdateTransport :exec
 UPDATE transports
 SET
-    model = COALESCE($1::text, model),
-    license_plate = COALESCE($2::text, license_plate),
-    payload_capacity = COALESCE($3::int, payload_capacity),
-    fuel_consumption = COALESCE($4::int, fuel_consumption),
-    inspection_passed = COALESCE($5::boolean, inspection_passed),
-    inspection_date = COALESCE($6::date, inspection_date),
+    model = $1::text,
+    license_plate = $2::text,
+    payload_capacity = $3::int,
+    fuel_consumption = $4::int,
     updated_at = NOW()
-WHERE transport_id = $7
+WHERE transport_id = $5
 `
 
 type UpdateTransportParams struct {
-	Model            *string
-	LicensePlate     *string
-	PayloadCapacity  *int32
-	FuelConsumption  *int32
-	InspectionPassed *bool
-	InspectionDate   pgtype.Date
-	TransportID      int32
+	Model           string
+	LicensePlate    string
+	PayloadCapacity int32
+	FuelConsumption int32
+	TransportID     int32
 }
 
 func (q *Queries) UpdateTransport(ctx context.Context, arg UpdateTransportParams) error {
@@ -353,8 +322,6 @@ func (q *Queries) UpdateTransport(ctx context.Context, arg UpdateTransportParams
 		arg.LicensePlate,
 		arg.PayloadCapacity,
 		arg.FuelConsumption,
-		arg.InspectionPassed,
-		arg.InspectionDate,
 		arg.TransportID,
 	)
 	return err

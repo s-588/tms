@@ -3,8 +3,8 @@
 CREATE TABLE prices (
     price_id    SERIAL PRIMARY KEY,
     cargo_type  VARCHAR(50) NOT NULL,
-    weight      INTEGER NOT NULL,
-    distance    INTEGER NOT NULL,
+    weight      decimal(10,2) NOT NULL,
+    distance    decimal(10,2) NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMPTZ,
     deleted_at  TIMESTAMPTZ,

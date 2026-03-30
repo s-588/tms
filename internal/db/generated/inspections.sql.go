@@ -92,7 +92,7 @@ func (q *Queries) GetInspection(ctx context.Context, inspectionID int32) (Inspec
 
 const getInspections = `-- name: GetInspections :many
 SELECT inspection_id, transport_id, inspection_date, inspection_expiration, status, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM inspections
 WHERE deleted_at IS NULL
   AND ($1::int IS NULL OR transport_id = $1::int)
@@ -101,13 +101,9 @@ WHERE deleted_at IS NULL
   AND ($4::date IS NULL OR inspection_date <= $4::date)
   AND ($5::date IS NULL OR inspection_expiration >= $5::date)
   AND ($6::date IS NULL OR inspection_expiration <= $6::date)
-  AND ($7::timestamptz IS NULL OR created_at >= $7::timestamptz)
-  AND ($8::timestamptz IS NULL OR created_at <= $8::timestamptz)
-  AND ($9::timestamptz IS NULL OR updated_at >= $9::timestamptz)
-  AND ($10::timestamptz IS NULL OR updated_at <= $10::timestamptz)
 ORDER BY
-    CASE WHEN $11::text = 'ASC' THEN
-        CASE $12::text
+    CASE WHEN $7::text = 'ASC' THEN
+        CASE $8::text
             WHEN 'inspection_id' THEN inspection_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'status' THEN status::text
@@ -117,8 +113,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $11::text = 'DESC' THEN
-        CASE $12::text
+    CASE WHEN $7::text = 'DESC' THEN
+        CASE $8::text
             WHEN 'inspection_id' THEN inspection_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'status' THEN status::text
@@ -128,7 +124,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $14 OFFSET $13
+LIMIT 20 OFFSET 20 * ($9::integer - 1)
 `
 
 type GetInspectionsParams struct {
@@ -138,14 +134,9 @@ type GetInspectionsParams struct {
 	InspectionDateTo         pgtype.Date
 	InspectionExpirationFrom pgtype.Date
 	InspectionExpirationTo   pgtype.Date
-	CreatedFrom              pgtype.Timestamptz
-	CreatedTo                pgtype.Timestamptz
-	UpdatedFrom              pgtype.Timestamptz
-	UpdatedTo                pgtype.Timestamptz
-	SortOrder                *string
-	SortBy                   *string
-	Offset                   int32
-	Limit                    int32
+	SortOrder                string
+	SortBy                   string
+	Page                     int32
 }
 
 type GetInspectionsRow struct {
@@ -157,7 +148,7 @@ type GetInspectionsRow struct {
 	CreatedAt            pgtype.Timestamptz
 	UpdatedAt            pgtype.Timestamptz
 	DeletedAt            pgtype.Timestamptz
-	TotalCount           int64
+	TotalCount           int32
 }
 
 func (q *Queries) GetInspections(ctx context.Context, arg GetInspectionsParams) ([]GetInspectionsRow, error) {
@@ -168,14 +159,9 @@ func (q *Queries) GetInspections(ctx context.Context, arg GetInspectionsParams) 
 		arg.InspectionDateTo,
 		arg.InspectionExpirationFrom,
 		arg.InspectionExpirationTo,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -270,19 +256,19 @@ func (q *Queries) SoftDeleteInspection(ctx context.Context, inspectionID int32) 
 const updateInspection = `-- name: UpdateInspection :exec
 UPDATE inspections
 SET
-    transport_id = COALESCE($1::int, transport_id),
-    inspection_date = COALESCE($2::date, inspection_date),
-    inspection_expiration = COALESCE($3::date, inspection_expiration),
-    status = COALESCE($4::inspection_status, status),
+    transport_id = $1::int,
+    inspection_date = $2::date,
+    inspection_expiration = $3::date,
+    status = $4::inspection_status,
     updated_at = NOW()
 WHERE inspection_id = $5
 `
 
 type UpdateInspectionParams struct {
-	TransportID          *int32
+	TransportID          int32
 	InspectionDate       pgtype.Date
 	InspectionExpiration pgtype.Date
-	Status               NullInspectionStatus
+	Status               InspectionStatus
 	InspectionID         int32
 }
 

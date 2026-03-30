@@ -40,7 +40,7 @@ INSERT INTO orders (
     $2::int,
     $3::int,
     $4::smallint,
-    $5::int,
+    $5::double precision,
     $6::int,
     $7::numeric,
     $8::int,
@@ -56,7 +56,7 @@ type CreateOrderParams struct {
 	TransportID int32
 	EmployeeID  int32
 	Grade       int16
-	Distance    int32
+	Distance    float64
 	Weight      int32
 	TotalPrice  decimal.Decimal
 	PriceID     int32
@@ -101,13 +101,51 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 }
 
 const getOrder = `-- name: GetOrder :one
-SELECT order_id, client_id, transport_id, employee_id, price_id, grade, distance, weight, total_price, status, node_id_start, node_id_end, created_at, updated_at, deleted_at FROM orders
-WHERE order_id = $1 AND deleted_at IS NULL
+SELECT 
+    o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at,
+    c.name as client_name,
+    e.name as employee_name,
+    t.license_plate as transport_license_plate,
+    p.cargo_type as price_cargo_type,
+    ns.name as node_start_name,
+    ne.name as node_end_name
+FROM orders o
+LEFT JOIN clients c ON o.client_id = c.client_id
+LEFT JOIN employees e ON o.employee_id = e.employee_id
+LEFT JOIN transports t ON o.transport_id = t.transport_id
+LEFT JOIN prices p ON o.price_id = p.price_id
+LEFT JOIN nodes ns ON o.node_id_start = ns.node_id
+LEFT JOIN nodes ne ON o.node_id_end = ne.node_id
+WHERE o.order_id = $1 AND o.deleted_at IS NULL
 `
 
-func (q *Queries) GetOrder(ctx context.Context, orderID int32) (Order, error) {
+type GetOrderRow struct {
+	OrderID               int32
+	ClientID              int32
+	TransportID           int32
+	EmployeeID            int32
+	PriceID               int32
+	Grade                 int16
+	Distance              float64
+	Weight                int32
+	TotalPrice            decimal.Decimal
+	Status                OrderStatus
+	NodeIDStart           int32
+	NodeIDEnd             int32
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	DeletedAt             pgtype.Timestamptz
+	ClientName            *string
+	EmployeeName          *string
+	TransportLicensePlate *string
+	PriceCargoType        *string
+	NodeStartName         *string
+	NodeEndName           *string
+}
+
+func (q *Queries) GetOrder(ctx context.Context, orderID int32) (GetOrderRow, error) {
 	row := q.db.QueryRow(ctx, getOrder, orderID)
-	var i Order
+	var i GetOrderRow
 	err := row.Scan(
 		&i.OrderID,
 		&i.ClientID,
@@ -124,66 +162,81 @@ func (q *Queries) GetOrder(ctx context.Context, orderID int32) (Order, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.ClientName,
+		&i.EmployeeName,
+		&i.TransportLicensePlate,
+		&i.PriceCargoType,
+		&i.NodeStartName,
+		&i.NodeEndName,
 	)
 	return i, err
 }
 
 const getOrders = `-- name: GetOrders :many
-SELECT order_id, client_id, transport_id, employee_id, price_id, grade, distance, weight, total_price, status, node_id_start, node_id_end, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
-FROM orders
-WHERE deleted_at IS NULL
-  AND ($1::order_status IS NULL OR status = $1::order_status)
-  AND ($2::numeric IS NULL OR total_price >= $2::numeric)
-  AND ($3::numeric IS NULL OR total_price <= $3::numeric)
-  AND ($4::int IS NULL OR distance >= $4::int)
-  AND ($5::int IS NULL OR distance <= $5::int)
-  AND ($6::int IS NULL OR weight >= $6::int)
-  AND ($7::int IS NULL OR weight <= $7::int)
-  AND ($8::int IS NULL OR client_id = $8::int)
-  AND ($9::int IS NULL OR transport_id = $9::int)
-  AND ($10::int IS NULL OR employee_id = $10::int)
-  AND ($11::int IS NULL OR price_id = $11::int)
-  AND ($12::smallint IS NULL OR grade >= $12::smallint)
-  AND ($13::smallint IS NULL OR grade <= $13::smallint)
-  AND ($14::timestamptz IS NULL OR created_at >= $14::timestamptz)
-  AND ($15::timestamptz IS NULL OR created_at <= $15::timestamptz)
-  AND ($16::timestamptz IS NULL OR updated_at >= $16::timestamptz)
-  AND ($17::timestamptz IS NULL OR updated_at <= $17::timestamptz)
+SELECT 
+    o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at,
+    c.name as client_name,
+    e.name as employee_name,
+    t.license_plate as transport_license_plate,
+    p.cargo_type as price_cargo_type,
+    ns.name as node_start_name,
+    ne.name as node_end_name,
+    (count(*) OVER())/20+1 AS total_count
+FROM orders o
+LEFT JOIN clients c ON o.client_id = c.client_id
+LEFT JOIN employees e ON o.employee_id = e.employee_id
+LEFT JOIN transports t ON o.transport_id = t.transport_id
+LEFT JOIN prices p ON o.price_id = p.price_id
+LEFT JOIN nodes ns ON o.node_id_start = ns.node_id
+LEFT JOIN nodes ne ON o.node_id_end = ne.node_id
+WHERE o.deleted_at IS NULL
+  AND ($1::order_status IS NULL OR o.status = $1::order_status)
+  AND ($2::numeric IS NULL OR o.total_price >= $2::numeric)
+  AND ($3::numeric IS NULL OR o.total_price <= $3::numeric)
+  AND ($4::double precision IS NULL OR o.distance >= $4::double precision)
+  AND ($5::double precision IS NULL OR o.distance <= $5::double precision)
+  AND ($6::int IS NULL OR o.weight >= $6::int)
+  AND ($7::int IS NULL OR o.weight <= $7::int)
+  AND ($8::int IS NULL OR o.client_id = $8::int)
+  AND ($9::int IS NULL OR o.transport_id = $9::int)
+  AND ($10::int IS NULL OR o.employee_id = $10::int)
+  AND ($11::int IS NULL OR o.price_id = $11::int)
+  AND ($12::smallint IS NULL OR o.grade >= $12::smallint)
+  AND ($13::smallint IS NULL OR o.grade <= $13::smallint)
 ORDER BY
-    CASE WHEN $18::text = 'ASC' THEN
-        CASE $19::text
-            WHEN 'order_id' THEN order_id::text
-            WHEN 'distance' THEN distance::text
-            WHEN 'weight' THEN weight::text
-            WHEN 'total_price' THEN total_price::text
-            WHEN 'status' THEN status::text
-            WHEN 'grade' THEN grade::text
-            WHEN 'created_at' THEN created_at::text
-            WHEN 'updated_at' THEN updated_at::text
+    CASE WHEN $14::text = 'ASC' THEN
+        CASE $15::text
+            WHEN 'order_id' THEN o.order_id::text
+            WHEN 'distance' THEN o.distance::text
+            WHEN 'weight' THEN o.weight::text
+            WHEN 'total_price' THEN o.total_price::text
+            WHEN 'status' THEN o.status::text
+            WHEN 'grade' THEN o.grade::text
+            WHEN 'created_at' THEN o.created_at::text
+            WHEN 'updated_at' THEN o.updated_at::text
         END
     END ASC,
-    CASE WHEN $18::text = 'DESC' THEN
-        CASE $19::text
-            WHEN 'order_id' THEN order_id::text
-            WHEN 'distance' THEN distance::text
-            WHEN 'weight' THEN weight::text
-            WHEN 'total_price' THEN total_price::text
-            WHEN 'status' THEN status::text
-            WHEN 'grade' THEN grade::text
-            WHEN 'created_at' THEN created_at::text
-            WHEN 'updated_at' THEN updated_at::text
+    CASE WHEN $14::text = 'DESC' THEN
+        CASE $15::text
+            WHEN 'order_id' THEN o.order_id::text
+            WHEN 'distance' THEN o.distance::text
+            WHEN 'weight' THEN o.weight::text
+            WHEN 'total_price' THEN o.total_price::text
+            WHEN 'status' THEN o.status::text
+            WHEN 'grade' THEN o.grade::text
+            WHEN 'created_at' THEN o.created_at::text
+            WHEN 'updated_at' THEN o.updated_at::text
         END
     END DESC
-LIMIT $21 OFFSET $20
+LIMIT 20 OFFSET 20 * ($16::integer - 1)
 `
 
 type GetOrdersParams struct {
 	StatusFilter      NullOrderStatus
 	TotalPriceMin     pgtype.Numeric
 	TotalPriceMax     pgtype.Numeric
-	DistanceMin       *int32
-	DistanceMax       *int32
+	DistanceMin       *float64
+	DistanceMax       *float64
 	WeightMin         *int32
 	WeightMax         *int32
 	ClientIDFilter    *int32
@@ -192,33 +245,34 @@ type GetOrdersParams struct {
 	PriceIDFilter     *int32
 	GradeMin          *int16
 	GradeMax          *int16
-	CreatedFrom       pgtype.Timestamptz
-	CreatedTo         pgtype.Timestamptz
-	UpdatedFrom       pgtype.Timestamptz
-	UpdatedTo         pgtype.Timestamptz
-	SortOrder         *string
-	SortBy            *string
-	Offset            int32
-	Limit             int32
+	SortOrder         string
+	SortBy            string
+	Page              int32
 }
 
 type GetOrdersRow struct {
-	OrderID     int32
-	ClientID    int32
-	TransportID int32
-	EmployeeID  int32
-	PriceID     int32
-	Grade       int16
-	Distance    int32
-	Weight      int32
-	TotalPrice  decimal.Decimal
-	Status      OrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	DeletedAt   pgtype.Timestamptz
-	TotalCount  int64
+	OrderID               int32
+	ClientID              int32
+	TransportID           int32
+	EmployeeID            int32
+	PriceID               int32
+	Grade                 int16
+	Distance              float64
+	Weight                int32
+	TotalPrice            decimal.Decimal
+	Status                OrderStatus
+	NodeIDStart           int32
+	NodeIDEnd             int32
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	DeletedAt             pgtype.Timestamptz
+	ClientName            *string
+	EmployeeName          *string
+	TransportLicensePlate *string
+	PriceCargoType        *string
+	NodeStartName         *string
+	NodeEndName           *string
+	TotalCount            int32
 }
 
 func (q *Queries) GetOrders(ctx context.Context, arg GetOrdersParams) ([]GetOrdersRow, error) {
@@ -236,14 +290,9 @@ func (q *Queries) GetOrders(ctx context.Context, arg GetOrdersParams) ([]GetOrde
 		arg.PriceIDFilter,
 		arg.GradeMin,
 		arg.GradeMax,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -268,6 +317,12 @@ func (q *Queries) GetOrders(ctx context.Context, arg GetOrdersParams) ([]GetOrde
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.ClientName,
+			&i.EmployeeName,
+			&i.TransportLicensePlate,
+			&i.PriceCargoType,
+			&i.NodeStartName,
+			&i.NodeEndName,
 			&i.TotalCount,
 		); err != nil {
 			return nil, err
@@ -310,33 +365,33 @@ func (q *Queries) SoftDeleteOrder(ctx context.Context, orderID int32) error {
 const updateOrder = `-- name: UpdateOrder :exec
 UPDATE orders
 SET
-    client_id = COALESCE($1::int, client_id),
-    transport_id = COALESCE($2::int, transport_id),
-    employee_id = COALESCE($3::int, employee_id),
-    grade = COALESCE($4::smallint, grade),
-    distance = COALESCE($5::int, distance),
-    weight = COALESCE($6::int, weight),
-    total_price = COALESCE($7::numeric, total_price),
-    price_id = COALESCE($8::int, price_id),
-    status = COALESCE($9::order_status, status),
-    node_id_start = COALESCE($10::int, node_id_start),
-    node_id_end = COALESCE($11::int, node_id_end),
+    client_id = $1::int,
+    transport_id = $2::int,
+    employee_id = $3::int,
+    grade = $4::smallint,
+    distance = $5::double precision,  
+    weight = $6::int,
+    total_price = $7::numeric,
+    price_id = $8::int,
+    status = $9::order_status,
+    node_id_start = $10::int,
+    node_id_end = $11::int,
     updated_at = NOW()
 WHERE order_id = $12
 `
 
 type UpdateOrderParams struct {
-	ClientID    *int32
-	TransportID *int32
-	EmployeeID  *int32
-	Grade       *int16
-	Distance    *int32
-	Weight      *int32
-	TotalPrice  pgtype.Numeric
-	PriceID     *int32
-	Status      NullOrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
+	ClientID    int32
+	TransportID int32
+	EmployeeID  int32
+	Grade       int16
+	Distance    float64
+	Weight      int32
+	TotalPrice  decimal.Decimal
+	PriceID     int32
+	Status      OrderStatus
+	NodeIDStart int32
+	NodeIDEnd   int32
 	OrderID     int32
 }
 

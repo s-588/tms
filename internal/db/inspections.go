@@ -4,23 +4,23 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
 )
 
-// CreateInspection inserts a new inspection.
-func (db DB) CreateInspection(ctx context.Context,
-	transportID int32,
-	inspectionDate time.Time,
-	inspectionExpiration time.Time,
-	status models.InspectionStatus,
-) (models.Inspection, error) {
+type CreateInspectionArgs struct {
+	TransportID          int32
+	InspectionDate       time.Time
+	InspectionExpiration time.Time
+	Status               models.InspectionStatus
+}
+
+func (db DB) CreateInspection(ctx context.Context, args CreateInspectionArgs) (models.Inspection, error) {
 	arg := generated.CreateInspectionParams{
-		TransportID:          transportID,
-		InspectionDate:       pgtype.Date{Time: inspectionDate, Valid: true},
-		InspectionExpiration: pgtype.Date{Time: inspectionExpiration, Valid: true},
-		Status:               generated.InspectionStatus(status),
+		TransportID:          args.TransportID,
+		InspectionDate:       ToPgTypeDateFromTime(args.InspectionDate),
+		InspectionExpiration: ToPgTypeDateFromTime(args.InspectionExpiration),
+		Status:               generated.InspectionStatus(args.Status),
 	}
 	genInspection, err := db.queries.CreateInspection(ctx, arg)
 	if err != nil {
@@ -29,18 +29,16 @@ func (db DB) CreateInspection(ctx context.Context,
 	return convertGeneratedInspectionToModel(genInspection), nil
 }
 
-// GetInspectionByID returns an inspection by its ID.
-func (db DB) GetInspectionByID(ctx context.Context, inspectionID int) (models.Inspection, error) {
-	genInspection, err := db.queries.GetInspection(ctx, int32(inspectionID))
+func (db DB) GetInspectionByID(ctx context.Context, inspectionID int32) (models.Inspection, error) {
+	genInspection, err := db.queries.GetInspection(ctx, inspectionID)
 	if err != nil {
 		return models.Inspection{}, err
 	}
 	return convertGeneratedInspectionToModel(genInspection), nil
 }
 
-// GetInspectionsByTransport returns all inspections for a given transport, ordered by date descending.
-func (db DB) GetInspectionsByTransport(ctx context.Context, transportID int) ([]models.Inspection, error) {
-	genInspections, err := db.queries.GetInspectionsByTransport(ctx, int32(transportID))
+func (db DB) GetInspectionsByTransport(ctx context.Context, transportID int32) ([]models.Inspection, error) {
+	genInspections, err := db.queries.GetInspectionsByTransport(ctx, transportID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,78 +49,68 @@ func (db DB) GetInspectionsByTransport(ctx context.Context, transportID int) ([]
 	return inspections, nil
 }
 
-// GetInspections returns a paginated list of inspections matching the filter.
-func (db DB) GetInspections(ctx context.Context, limit, offset int, filter models.InspectionFilter) ([]models.Inspection, int64, error) {
+func (db DB) GetInspections(ctx context.Context, page int32, filter models.InspectionFilter) ([]models.Inspection, int32, error) {
 	arg := generated.GetInspectionsParams{
-		Limit:                    int32(limit),
-		Offset:                   int32(offset),
+		Page:                     page,
 		TransportIDFilter:        filter.TransportID.ToPtr(),
-		StatusFilter:             inspectionStatusToNullGenerated(filter.Status),
+		StatusFilter:             ToNullInspectionStatus(filter.Status),
 		InspectionDateFrom:       optionalTimeToPgDate(filter.InspectionDateFrom),
 		InspectionDateTo:         optionalTimeToPgDate(filter.InspectionDateTo),
 		InspectionExpirationFrom: optionalTimeToPgDate(filter.InspectionExpirationFrom),
 		InspectionExpirationTo:   optionalTimeToPgDate(filter.InspectionExpirationTo),
-		CreatedFrom:              optionalTimeToPgTimestamptz(filter.CreatedFrom),
-		CreatedTo:                optionalTimeToPgTimestamptz(filter.CreatedTo),
-		UpdatedFrom:              optionalTimeToPgTimestamptz(filter.UpdatedFrom),
-		UpdatedTo:                optionalTimeToPgTimestamptz(filter.UpdatedTo),
-		SortBy:                   filter.SortBy.ToPtr(),
-		SortOrder:                filter.SortOrder.ToPtr(),
+		SortBy:                   filter.GetSortBy(),
+		SortOrder:                filter.GetSortOrder(),
 	}
 	rows, err := db.queries.GetInspections(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var inspections []models.Inspection
-	var totalCount int64
+	var totalPages int32
 	for _, row := range rows {
-		totalCount = row.TotalCount
+		totalPages = row.TotalCount
 		inspections = append(inspections, convertGeneratedInspectionRowToModel(row))
 	}
-	return inspections, totalCount, nil
+	return inspections, totalPages, nil
 }
 
-// UpdateInspection updates mutable fields of an inspection.
-func (db DB) UpdateInspection(ctx context.Context,
-	inspectionID int,
-	transportID *int32,
-	inspectionDate *time.Time,
-	inspectionExpiration *time.Time,
-	status *models.InspectionStatus,
-) error {
+type UpdateInspectionArgs struct {
+	InspectionID         int32
+	TransportID          int32
+	InspectionDate       time.Time
+	InspectionExpiration time.Time
+	Status               models.InspectionStatus
+}
+
+func (db DB) UpdateInspection(ctx context.Context, args UpdateInspectionArgs) error {
 	arg := generated.UpdateInspectionParams{
-		InspectionID:         int32(inspectionID),
-		TransportID:          transportID,
-		InspectionDate:       timeToPgDatePtr(inspectionDate),
-		InspectionExpiration: timeToPgDatePtr(inspectionExpiration),
-		Status:               inspectionStatusPtrToNullGenerated(status),
+		InspectionID:         args.InspectionID,
+		TransportID:          args.TransportID,
+		InspectionDate:       ToPgTypeDateFromTime(args.InspectionDate),
+		InspectionExpiration: ToPgTypeDateFromTime(args.InspectionExpiration),
+		Status:               generated.InspectionStatus(args.Status),
 	}
 	return db.queries.UpdateInspection(ctx, arg)
 }
 
-// SoftDeleteInspection marks an inspection as deleted.
-func (db DB) SoftDeleteInspection(ctx context.Context, inspectionID int) error {
-	return db.queries.SoftDeleteInspection(ctx, int32(inspectionID))
+func (db DB) SoftDeleteInspection(ctx context.Context, inspectionID int32) error {
+	return db.queries.SoftDeleteInspection(ctx, inspectionID)
 }
 
-// HardDeleteInspection permanently removes an inspection.
-func (db DB) HardDeleteInspection(ctx context.Context, inspectionID int) error {
-	return db.queries.HardDeleteInspection(ctx, int32(inspectionID))
+func (db DB) HardDeleteInspection(ctx context.Context, inspectionID int32) error {
+	return db.queries.HardDeleteInspection(ctx, inspectionID)
 }
 
-// RestoreInspection removes the soft‑delete mark.
-func (db DB) RestoreInspection(ctx context.Context, inspectionID int) error {
-	return db.queries.RestoreInspection(ctx, int32(inspectionID))
+func (db DB) RestoreInspection(ctx context.Context, inspectionID int32) error {
+	return db.queries.RestoreInspection(ctx, inspectionID)
 }
 
-// BulkSoftDeleteInspections soft‑deletes multiple inspections.
-func (db DB) BulkSoftDeleteInspections(ctx context.Context, inspectionIDs []int) error {
-	return db.queries.BulkSoftDeleteInspections(ctx, convertIntSliceToInt32(inspectionIDs))
+func (db DB) BulkSoftDeleteInspections(ctx context.Context, inspectionIDs []int32) error {
+	return db.queries.BulkSoftDeleteInspections(ctx, inspectionIDs)
 }
 
-// BulkHardDeleteInspections permanently deletes multiple inspections.
-func (db DB) BulkHardDeleteInspections(ctx context.Context, inspectionIDs []int) error {
-	return db.queries.BulkHardDeleteInspections(ctx, convertIntSliceToInt32(inspectionIDs))
+func (db DB) BulkHardDeleteInspections(ctx context.Context, inspectionIDs []int32) error {
+	return db.queries.BulkHardDeleteInspections(ctx, inspectionIDs)
 }
 
 // conversion helpers

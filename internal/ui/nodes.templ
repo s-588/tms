@@ -1,0 +1,597 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/table"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+	"strconv"
+	"strings"
+)
+
+// ---------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------
+templ NodesPage(nodes []models.Node, page, totalPages int32, filter models.NodeFilter) {
+	@NodesViewSheet(models.Node{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2">
+			@NodesFilter(filter)
+			@nodesOperationsBar(Form{})
+		</div>
+		@NodesTable(nodes, page, totalPages, filter, false)
+	</div>
+}
+
+// ---------------------------------------------------------------------
+// View / Edit Sheet
+// ---------------------------------------------------------------------
+templ NodesViewSheet(node models.Node, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "nodes-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		@NodesViewSheetContent(node, Form{})
+	}
+}
+
+templ NodesViewSheetContent(node models.Node, formData Form) {
+	<div id="nodes-sheet-content">
+		@sheet.Header() {
+			@sheet.Title() {
+				{ node.Name }
+			}
+			@sheet.Description() {
+				{ "Node ID: " + strconv.Itoa(int(node.NodeID)) }
+			}
+		}
+		<form
+			id="node-edit-form"
+			class="space-y-6"
+			hx-put={ "/nodes/" + strconv.Itoa(int(node.NodeID)) }
+			hx-target="#nodes-sheet-content"
+		>
+			<div class="flex-1 p-4 space-y-6">
+
+				<!-- Node Details -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Node Details</h3>
+
+					{{ nameField := formData["name"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "node-edit-name" }) { Name }
+						if nameField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "node-edit-name",
+								Name:        "name",
+								Type:        input.TypeText,
+								Value:       node.Name,
+								Placeholder: "Main Warehouse",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "node-edit-name",
+								Name:        "name",
+								Type:        input.TypeText,
+								Value:       nameField.Value,
+								Placeholder: "Main Warehouse",
+								HasError:    true,
+							})
+							@form.Description() { Enter node name. }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ nameField.Err.Error() }
+							}
+						}
+					}
+					{{ addressField := formData["address"] }}
+	@form.Item() {
+		@form.Label(form.LabelProps{ For: "node-edit-address" }) { Address }
+		if addressField.Err == nil {
+			@input.Input(input.Props{
+				ID:          "node-edit-address",
+				Name:        "address",
+				Type:        input.TypeText,
+				Value:       node.Address,
+				Placeholder: "123 Industrial St, Warehouse District",
+			})
+		} else {
+			@input.Input(input.Props{
+				ID:          "node-edit-address",
+				Name:        "address",
+				Type:        input.TypeText,
+				Value:       addressField.Value,
+				Placeholder: "123 Industrial St, Warehouse District",
+				HasError:    true,
+			})
+			@form.Description() { Enter node address. }
+			@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+				{ addressField.Err.Error() }
+			}
+		}
+	}
+				</div>
+
+				<!-- Coordinates -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Coordinates</h3>
+					<div class="grid grid-cols-2 gap-4">
+						{{ xField := formData["x"] }}
+						@form.Item() {
+							@form.Label(form.LabelProps{ For: "node-edit-x" }) { X }
+							if xField.Err == nil {
+								@input.Input(input.Props{
+									ID:          "node-edit-x",
+									Name:        "x",
+									Type:        input.TypeText,
+									Value:       fmt.Sprintf("%f", node.Geom.X),
+									Placeholder: "12.345",
+								})
+							} else {
+								@input.Input(input.Props{
+									ID:          "node-edit-x",
+									Name:        "x",
+									Type:        input.TypeText,
+									Value:       xField.Value,
+									Placeholder: "12.345",
+									HasError:    true,
+								})
+								@form.Description() { Enter X coordinate. }
+								@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+									{ xField.Err.Error() }
+								}
+							}
+						}
+						{{ yField := formData["y"] }}
+						@form.Item() {
+							@form.Label(form.LabelProps{ For: "node-edit-y" }) { Y }
+							if yField.Err == nil {
+								@input.Input(input.Props{
+									ID:          "node-edit-y",
+									Name:        "y",
+									Type:        input.TypeText,
+									Value:       fmt.Sprintf("%f", node.Geom.Y),
+									Placeholder: "67.890",
+								})
+							} else {
+								@input.Input(input.Props{
+									ID:          "node-edit-y",
+									Name:        "y",
+									Type:        input.TypeText,
+									Value:       yField.Value,
+									Placeholder: "67.890",
+									HasError:    true,
+								})
+								@form.Description() { Enter Y coordinate. }
+								@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+									{ yField.Err.Error() }
+								}
+							}
+						}
+					</div>
+				</div>
+
+				<!-- Timestamps (read‑only) -->
+				<div class="space-y-2 pt-4 border-t text-xs text-muted-foreground">
+					<div>Created: { node.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { node.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+					if !node.DeletedAt.IsZero() {
+						<div class="text-destructive">Deleted: { node.DeletedAt.Format("Jan 2, 2006 15:04") }</div>
+					}
+				</div>
+			</div>
+		</form>
+
+		@sheet.Footer() {
+			<div class="flex justify-between gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantDestructive,
+					Attributes: templ.Attributes{
+						"hx-delete":  "/nodes/" + strconv.FormatInt(int64(node.NodeID), 10),
+						"hx-target":  "#nodes-table",
+						"hx-confirm": "Are you sure you want to delete this node?",
+					},
+				}) {
+					Delete
+				}
+				<div class="flex gap-2">
+					@button.Button(button.Props{
+						Type:    button.TypeReset,
+						Variant: button.VariantGhost,
+						Attributes: templ.Attributes{
+							"form": "node-edit-form",
+						},
+					}) {
+						Reset
+					}
+					@button.Button(button.Props{
+						Type:    button.TypeSubmit,
+						Variant: button.VariantDefault,
+						Attributes: templ.Attributes{
+							"form": "node-edit-form",
+						},
+					}) {
+						Save Changes
+					}
+					@sheet.Close(sheet.CloseProps{ For: "nodes-sheet" }) {
+						@button.Button(button.Props{ Variant: button.VariantOutline }) {
+							Close
+						}
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ viewNodeSheetButton(nodeID int32) {
+	@sheet.Trigger(sheet.TriggerProps{ For: "nodes-sheet" }) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/nodes/%d", nodeID),
+				"hx-target": "#nodes-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------
+templ NodesTable(nodes []models.Node, page, totalPages int32, filter models.NodeFilter, swap bool) {
+	if swap {
+		<div class="overflow-x-auto" id="nodes-table" hx-swap-oob="true">
+			@nodesRealTable(nodes, page, totalPages, filter)
+		</div>
+	} else {
+		<div class="overflow-x-auto" id="nodes-table">
+			@nodesRealTable(nodes, page, totalPages, filter)
+		</div>
+	}
+}
+
+templ nodesRealTable(nodes []models.Node, page, totalPages int32, filter models.NodeFilter) {
+	@table.Table(table.Props{}) {
+		@table.Header() {
+			@table.Row() {
+				@table.Head() { ID }
+				@table.Head() { Name }
+				@table.Head() { Coordinates }
+				@table.Head() { Created }
+				@table.Head() { Operations }
+			}
+		}
+		@table.Body() {
+			if len(nodes) == 0 {
+				@table.Row() {
+					@table.Cell(table.CellProps{ Attributes: templ.Attributes{ "colspan": "5" } }) {
+						No nodes found
+					}
+				}
+			} else {
+				for _, node := range nodes {
+					@NodeRow(node)
+				}
+			}
+		}
+	}
+	@NodesPagination(page, totalPages, filter)
+}
+
+templ NodeRow(node models.Node) {
+	@table.Row() {
+		@table.Cell() { { node.NodeID } }
+		@table.Cell() { { node.Name } }
+		@table.Cell() { { fmt.Sprintf("(%.4f, %.4f)", node.Geom.X, node.Geom.Y) } }
+		@table.Cell() { { node.CreatedAt.Format("2006-01-02") } }
+		@table.Cell() {
+			@viewNodeSheetButton(node.NodeID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Filter Dialog
+// ---------------------------------------------------------------------
+templ NodesFilter(filter models.NodeFilter) {
+	@dialog.Dialog(dialog.Props{ ID: "nodes-filter-dialog" }) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{ Variant: button.VariantOutline }) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{ Class: "max-w-xl" }) {
+			<form
+				class="space-y-6"
+				hx-get="/nodes"
+				hx-push-url="true"
+				hx-target="#nodes-table"
+			>
+				@dialog.Header() {
+					@dialog.Title() { Filter nodes }
+				}
+
+				<div class="grid grid-cols-1 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-name" }) { Name }
+						@input.Input(input.Props{
+							ID:    "filter-name",
+							Name:  "name",
+							Type:  input.TypeText,
+							Value: func() string { if filter.Name.Set { return filter.Name.Value } else { return "" } }(),
+						})
+					}
+				</div>
+
+				@form.Item() {
+					@form.Label(form.LabelProps{ For: "filter-sort-by" }) { Sort by }
+					@selectbox.SelectBox(selectbox.Props{
+						ID: "filter-sort-by",
+					}) {
+						@selectbox.Trigger(selectbox.TriggerProps{
+							Name: "sort",
+						}) {
+							@selectbox.Value(selectbox.ValueProps{
+								Placeholder: "Select column",
+							})
+						}
+						@selectbox.Content() {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{ Value: "node_id" }) { ID }
+								@selectbox.Item(selectbox.ItemProps{ Value: "name" }) { Name }
+								@selectbox.Item(selectbox.ItemProps{ Value: "created_at" }) { Created at }
+							}
+						}
+					}
+				}
+
+				@dialog.Footer() {
+					<div class="flex justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</div>
+				}
+			</form>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Operations Bar (Add button)
+// ---------------------------------------------------------------------
+templ nodesOperationsBar(addErrs Form) {
+	@NodesAddDialog(addErrs)
+}
+
+// ---------------------------------------------------------------------
+// Add Dialog
+// ---------------------------------------------------------------------
+templ NodesAddDialog(errs Form) {
+	<htmx-partial hx-target="#nodes-add-dialog">
+		@dialog.Dialog(dialog.Props{ ID: "nodes-add-dialog" }) {
+			@dialog.Trigger() {
+				@button.Button(button.Props{ Variant: button.VariantOutline }) {
+					Add node
+				}
+			}
+			@dialog.Content(dialog.ContentProps{ Class: "max-w-md" }) {
+				@dialog.Header() {
+					@dialog.Title() { Add node }
+					@dialog.Description() { Add a new node. Click "Add" when you're done. }
+					@NodesAddContent(errs)
+				}
+			}
+		}
+	</htmx-partial>
+}
+
+templ NodesAddContent(userForm Form) {
+	<htmx-partial hx-target="#nodes-add-content">
+		<form
+			hx-post="/nodes"
+			hx-push-url="true"
+			id="nodes-add-content"
+			class="flex gap-6 flex-col"
+		>
+			{{ nameField := userForm["name"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "nodes-add-name" }) { Name }
+				if nameField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "nodes-add-name",
+						Name:        "name",
+						Type:        input.TypeText,
+						Value:       nameField.Value,
+						Placeholder: "Main Warehouse",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "nodes-add-name",
+						Name:        "name",
+						Type:        input.TypeText,
+						Value:       nameField.Value,
+						Placeholder: "Main Warehouse",
+						HasError:    true,
+					})
+					@form.Description() { Enter node name. }
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ nameField.Err.Error() }
+					}
+				}
+			}
+
+			<div class="grid grid-cols-2 gap-4">
+				{{ xField := userForm["x"] }}
+				@form.Item() {
+					@form.Label(form.LabelProps{ For: "nodes-add-x" }) { X }
+					if xField.Err == nil {
+						@input.Input(input.Props{
+							ID:          "nodes-add-x",
+							Name:        "x",
+							Type:        input.TypeText,
+							Value:       xField.Value,
+							Placeholder: "12.345",
+						})
+					} else {
+						@input.Input(input.Props{
+							ID:          "nodes-add-x",
+							Name:        "x",
+							Type:        input.TypeText,
+							Value:       xField.Value,
+							Placeholder: "12.345",
+							HasError:    true,
+						})
+						@form.Description() { Enter X coordinate. }
+						@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+							{ xField.Err.Error() }
+						}
+					}
+				}
+				{{ yField := userForm["y"] }}
+				@form.Item() {
+					@form.Label(form.LabelProps{ For: "nodes-add-y" }) { Y }
+					if yField.Err == nil {
+						@input.Input(input.Props{
+							ID:          "nodes-add-y",
+							Name:        "y",
+							Type:        input.TypeText,
+							Value:       yField.Value,
+							Placeholder: "67.890",
+						})
+					} else {
+						@input.Input(input.Props{
+							ID:          "nodes-add-y",
+							Name:        "y",
+							Type:        input.TypeText,
+							Value:       yField.Value,
+							Placeholder: "67.890",
+							HasError:    true,
+						})
+						@form.Description() { Enter Y coordinate. }
+						@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+							{ yField.Err.Error() }
+						}
+					}
+				}
+			</div>
+
+			@button.Button(button.Props{
+				Type:    button.TypeSubmit,
+				Variant: button.VariantDefault,
+			}) {
+				Add
+			}
+		</form>
+	</htmx-partial>
+}
+
+// ---------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------
+templ NodesPagination(page, totalPages int32, filter models.NodeFilter) {
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	{{ query := buildNodesQueryString(filter) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#nodes-table",
+						"hx-push-url": "true",
+						"hx-get":      buildNodesPageURL(query, p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#nodes-table",
+							"hx-push-url": "true",
+							"hx-get":      buildNodesPageURL(query, 1),
+						},
+					}) { 1 }
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+			}
+			for _, pg := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#nodes-table",
+							"hx-push-url": "true",
+							"hx-get":      buildNodesPageURL(query, pg),
+						},
+						IsActive: pg == p.CurrentPage,
+					}) { { fmt.Sprint(pg) } }
+				}
+			}
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#nodes-table",
+							"hx-push-url": "true",
+							"hx-get":      buildNodesPageURL(query, p.TotalPages),
+						},
+					}) { { fmt.Sprint(p.TotalPages) } }
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#nodes-table",
+						"hx-push-url": "true",
+						"hx-get":      buildNodesPageURL(query, p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+func buildNodesQueryString(filter models.NodeFilter) string {
+	params := []string{}
+	if filter.Name.Set && filter.Name.Value != "" {
+		params = append(params, "name="+filter.Name.Value)
+	}
+	if filter.SortBy.Set {
+		params = append(params, "sort="+filter.SortBy.Value)
+	}
+	if filter.SortOrder.Set {
+		params = append(params, "order="+filter.SortOrder.Value)
+	}
+	return strings.Join(params, "&")
+}
+
+func buildNodesPageURL(baseQuery string, page int) string {
+	if baseQuery == "" {
+		return fmt.Sprintf("/nodes?page=%d", page)
+	}
+	return fmt.Sprintf("/nodes?%s&page=%d", baseQuery, page)
+}

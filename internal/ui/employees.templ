@@ -1,0 +1,978 @@
+package ui
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/table"
+	"github.com/s-588/tms/internal/ui/components/datepicker"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/label"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/radio"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+)
+
+// ---------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------
+templ EmployeesPage(employees []models.Employee, page, totalPages int32, filter models.EmployeeFilter) {
+	@EmployeesViewSheet(models.Employee{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2">
+			@EmployeesFilter(filter)
+			@employeesOperationsBar(Form{})
+		</div>
+		@EmployeesTable(employees, page, totalPages, filter, false)
+	</div>
+}
+
+// ---------------------------------------------------------------------
+// View / Edit Sheet
+// ---------------------------------------------------------------------
+templ EmployeesViewSheet(employee models.Employee, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "employees-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		@EmployeesViewSheetContent(employee, Form{})
+	}
+}
+
+templ EmployeesViewSheetContent(employee models.Employee, formData Form) {
+	<div id="employees-sheet-content">
+		@sheet.Header() {
+			@sheet.Title() { { employee.Name } }
+			@sheet.Description() {
+				{ "Employee ID: " + strconv.Itoa(int(employee.EmployeeID)) + " | " + string(employee.JobTitle) }
+			}
+		}
+		<form
+			id="employee-edit-form"
+			class="space-y-6"
+			hx-put={ "/employees/" + strconv.Itoa(int(employee.EmployeeID)) }
+			hx-target="#employees-sheet-content"
+		>
+			<div class="flex-1 p-4 space-y-6">
+
+				<!-- Personal Info -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Personal Info</h3>
+
+					{{ nameField := formData["name"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-name" }) { Name }
+						if nameField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "employee-edit-name",
+								Name:        "name",
+								Type:        input.TypeText,
+								Value:       employee.Name,
+								Placeholder: "John Doe",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "employee-edit-name",
+								Name:        "name",
+								Type:        input.TypeText,
+								Value:       nameField.Value,
+								Placeholder: "John Doe",
+								HasError:    true,
+							})
+							@form.Description() { Enter full employee name. }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ nameField.Err.Error() }
+							}
+						}
+					}
+
+					{{ statusField := formData["status"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-status" }) { Status }
+						@selectbox.SelectBox(selectbox.Props{
+							ID: "employee-edit-status",
+						}) {
+							@selectbox.Trigger(selectbox.TriggerProps{
+								Name:     "status",
+								HasError: statusField.Err != nil,
+							}) {
+								@selectbox.Value(selectbox.ValueProps{
+									Placeholder: "Select status",
+								})
+							}
+							@selectbox.Content() {
+								@selectbox.Group() {
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "available",
+										Selected: (statusField.Err == nil && employee.Status == "available") || (statusField.Err != nil && statusField.Value == "available"),
+									}) {
+										Available
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "assigned",
+										Selected: (statusField.Err == nil && employee.Status == "assigned") || (statusField.Err != nil && statusField.Value == "assigned"),
+									}) {
+										Assigned
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "unavailable",
+										Selected: (statusField.Err == nil && employee.Status == "unavailable") || (statusField.Err != nil && statusField.Value == "unavailable"),
+									}) {
+										Unavailable
+									}
+								}
+							}
+						}
+						if statusField.Err != nil {
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ statusField.Err.Error() }
+							}
+						}
+					}
+
+					{{ jobField := formData["job_title"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-job" }) { Job Title }
+						@selectbox.SelectBox(selectbox.Props{
+							ID: "employee-edit-job",
+						}) {
+							@selectbox.Trigger(selectbox.TriggerProps{
+								Name:     "job_title",
+								HasError: jobField.Err != nil,
+							}) {
+								@selectbox.Value(selectbox.ValueProps{
+									Placeholder: "Select job title",
+								})
+							}
+							@selectbox.Content() {
+								@selectbox.Group() {
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "driver",
+										Selected: (jobField.Err == nil && employee.JobTitle == "driver") || (jobField.Err != nil && jobField.Value == "driver"),
+									}) {
+										Driver
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "dispatcher",
+										Selected: (jobField.Err == nil && employee.JobTitle == "dispatcher") || (jobField.Err != nil && jobField.Value == "dispatcher"),
+									}) {
+										Dispatcher
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "mechanic",
+										Selected: (jobField.Err == nil && employee.JobTitle == "mechanic") || (jobField.Err != nil && jobField.Value == "mechanic"),
+									}) {
+										Mechanic
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "logistics_manager",
+										Selected: (jobField.Err == nil && employee.JobTitle == "logistics_manager") || (jobField.Err != nil && jobField.Value == "logistics_manager"),
+									}) {
+										Logistics Manager
+									}
+								}
+							}
+						}
+						if jobField.Err != nil {
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ jobField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- Employment Details -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Employment</h3>
+
+					{{ hireDateField := formData["hire_date"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-hire-date" }) { Hire Date }
+						if hireDateField.Err == nil {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:    "employee-edit-hire-date",
+								Name:  "hire_date",
+								Value: employee.HireDate,
+							})
+						} else {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:       "employee-edit-hire-date",
+								Name:     "hire_date",
+								Value:    parseDate(hireDateField.Value),
+								HasError: true,
+							})
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ hireDateField.Err.Error() }
+							}
+						}
+					}
+
+					{{ salaryField := formData["salary"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-salary" }) { Salary }
+						if salaryField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "employee-edit-salary",
+								Name:        "salary",
+								Type:        input.TypeNumber,
+								Value:       employee.Salary.String(),
+								Placeholder: "50000.00",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "employee-edit-salary",
+								Name:        "salary",
+								Type:        input.TypeText,
+								Value:       salaryField.Value,
+								Placeholder: "50000.00",
+								HasError:    true,
+							})
+							@form.Description() { Enter salary as decimal (e.g., 50000.00). }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ salaryField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- License Info -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">License</h3>
+
+					{{ licenseIssuedField := formData["license_issued"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-license-issued" }) { License Issued }
+						if licenseIssuedField.Err == nil {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:    "employee-edit-license-issued",
+								Name:  "license_issued",
+								Value: employee.LicenseIssued,
+							})
+						} else {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:       "employee-edit-license-issued",
+								Name:     "license_issued",
+								Value:    parseDate(licenseIssuedField.Value),
+								HasError: true,
+							})
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ licenseIssuedField.Err.Error() }
+							}
+						}
+					}
+
+					{{ licenseExpField := formData["license_expiration"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "employee-edit-license-exp" }) { License Expiration }
+						if licenseExpField.Err == nil {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:    "employee-edit-license-exp",
+								Name:  "license_expiration",
+								Value: employee.LicenseExpiration,
+							})
+						} else {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:       "employee-edit-license-exp",
+								Name:     "license_expiration",
+								Value:    parseDate(licenseExpField.Value),
+								HasError: true,
+							})
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ licenseExpField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- Timestamps (read‑only) -->
+				<div class="space-y-2 pt-4 border-t text-xs text-muted-foreground">
+					<div>Created: { employee.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { employee.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+					if !employee.DeletedAt.IsZero() {
+						<div class="text-destructive">Deleted: { employee.DeletedAt.Format("Jan 2, 2006 15:04") }</div>
+					}
+				</div>
+			</div>
+		</form>
+
+		@sheet.Footer() {
+			<div class="flex justify-between gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantDestructive,
+					Attributes: templ.Attributes{
+						"hx-delete":  "/employees/" + strconv.FormatInt(int64(employee.EmployeeID), 10),
+						"hx-target":  "#employees-table",
+						"hx-confirm": "Are you sure you want to delete this employee?",
+					},
+				}) {
+					Delete
+				}
+				<div class="flex gap-2">
+					@button.Button(button.Props{
+						Type:    button.TypeReset,
+						Variant: button.VariantGhost,
+						Attributes: templ.Attributes{
+							"form": "employee-edit-form",
+						},
+					}) {
+						Reset
+					}
+					@button.Button(button.Props{
+						Type:    button.TypeSubmit,
+						Variant: button.VariantDefault,
+						Attributes: templ.Attributes{
+							"form": "employee-edit-form",
+						},
+					}) {
+						Save Changes
+					}
+					@sheet.Close(sheet.CloseProps{ For: "employees-sheet" }) {
+						@button.Button(button.Props{ Variant: button.VariantOutline }) {
+							Close
+						}
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ viewEmployeeSheetButton(employeeID int32) {
+	@sheet.Trigger(sheet.TriggerProps{ For: "employees-sheet" }) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/employees/%d", employeeID),
+				"hx-target": "#employees-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------
+templ EmployeesTable(employees []models.Employee, page, totalPages int32, filter models.EmployeeFilter, swap bool) {
+	if swap {
+		<div class="overflow-x-auto" id="employees-table" hx-swap-oob="true">
+			@employeesTableReal(employees, page, totalPages, filter)
+		</div>
+	} else {
+		<div class="overflow-x-auto" id="employees-table">
+			@employeesTableReal(employees, page, totalPages, filter)
+		</div>
+	}
+}
+
+templ employeesTableReal(employees []models.Employee, page, totalPages int32, filter models.EmployeeFilter) {
+	@table.Table(table.Props{}) {
+		@table.Header() {
+			@table.Row() {
+				@table.Head() { ID }
+				@table.Head() { Name }
+				@table.Head() { Job Title }
+				@table.Head() { Status }
+				@table.Head() { Hire Date }
+				@table.Head() { Salary }
+				@table.Head() { Operations }
+			}
+		}
+		@table.Body() {
+			if len(employees) == 0 {
+				@table.Row() {
+					@table.Cell(table.CellProps{ Attributes: templ.Attributes{ "colspan": "7" } }) {
+						No employees found
+					}
+				}
+			} else {
+				for _, employee := range employees {
+					@EmployeeRow(employee)
+				}
+			}
+		}
+	}
+	@EmployeesPagination(page, totalPages, filter)
+}
+
+templ EmployeeRow(employee models.Employee) {
+	@table.Row() {
+		@table.Cell() { { employee.EmployeeID } }
+		@table.Cell() { { employee.Name } }
+		@table.Cell() { { string(employee.JobTitle) } }
+		@table.Cell() { { string(employee.Status) } }
+		@table.Cell() { { employee.HireDate.Format("2006-01-02") } }
+		@table.Cell() { { employee.Salary.String() } }
+		@table.Cell() {
+			@viewEmployeeSheetButton(employee.EmployeeID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Filter Dialog
+// ---------------------------------------------------------------------
+templ EmployeesFilter(filter models.EmployeeFilter) {
+	@dialog.Dialog(dialog.Props{ ID: "employees-filter-dialog" }) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{ Variant: button.VariantOutline }) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{ Class: "max-w-xl" }) {
+			<form
+				class="space-y-6"
+				hx-get="/employees"
+				hx-push-url="true"
+				hx-target="#employees-table"
+			>
+				@dialog.Header() {
+					@dialog.Title() { Filter employees }
+				}
+
+				<div class="grid grid-cols-1 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-name" }) { Name }
+						@input.Input(input.Props{
+							ID:    "filter-name",
+							Name:  "name",
+							Type:  input.TypeText,
+							Value: filter.Name.Value,
+						})
+					}
+
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-job" }) { Job Title }
+						@selectbox.SelectBox(selectbox.Props{
+							ID: "filter-job",
+						}) {
+							@selectbox.Trigger(selectbox.TriggerProps{
+								Name: "job_title",
+							}) {
+								@selectbox.Value(selectbox.ValueProps{
+									Placeholder: "Any",
+								})
+							}
+							@selectbox.Content() {
+								@selectbox.Group() {
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "",
+										Selected: !filter.JobTitle.Set,
+									}) {
+										Any
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "driver",
+										Selected: filter.JobTitle.Value == "driver",
+									}) {
+										Driver
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "dispatcher",
+										Selected: filter.JobTitle.Value == "dispatcher",
+									}) {
+										Dispatcher
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "mechanic",
+										Selected: filter.JobTitle.Value == "mechanic",
+									}) {
+										Mechanic
+									}
+									@selectbox.Item(selectbox.ItemProps{
+										Value:    "logistics_manager",
+										Selected: filter.JobTitle.Value == "logistics_manager",
+									}) {
+										Logistics Manager
+									}
+								}
+							}
+						}
+					}
+
+					@form.Item() {
+						@form.Label(form.LabelProps{}) { Status }
+						<div class="flex gap-6">
+							<div class="flex items-center gap-2">
+								@radio.Radio(radio.Props{
+									ID:      "status-any",
+									Name:    "status",
+									Value:   "",
+									Checked: !filter.Status.Set,
+								})
+								@label.Label(label.Props{ For: "status-any" }) { Any }
+							</div>
+							<div class="flex items-center gap-2">
+								@radio.Radio(radio.Props{
+									ID:      "status-available",
+									Name:    "status",
+									Value:   "available",
+									Checked: filter.Status.Value == "available",
+								})
+								@label.Label(label.Props{ For: "status-available" }) { Available }
+							</div>
+							<div class="flex items-center gap-2">
+								@radio.Radio(radio.Props{
+									ID:      "status-assigned",
+									Name:    "status",
+									Value:   "assigned",
+									Checked: filter.Status.Value == "assigned",
+								})
+								@label.Label(label.Props{ For: "status-assigned" }) { Assigned }
+							</div>
+							<div class="flex items-center gap-2">
+								@radio.Radio(radio.Props{
+									ID:      "status-unavailable",
+									Name:    "status",
+									Value:   "unavailable",
+									Checked: filter.Status.Value == "unavailable",
+								})
+								@label.Label(label.Props{ For: "status-unavailable" }) { Unavailable }
+							</div>
+						</div>
+					}
+
+					<div class="grid grid-cols-2 gap-4">
+						@form.Item() {
+							@form.Label(form.LabelProps{ For: "salary-min" }) { Salary min }
+							@input.Input(input.Props{
+								ID:    "salary-min",
+								Name:  "salary_min",
+								Type:  input.TypeNumber,
+								Value: filter.SalaryMin.Value.String(),
+							})
+						}
+						@form.Item() {
+							@form.Label(form.LabelProps{ For: "salary-max" }) { Salary max }
+							@input.Input(input.Props{
+								ID:    "salary-max",
+								Name:  "salary_max",
+								Type:  input.TypeNumber,
+								Value: filter.SalaryMax.Value.String(),
+							})
+						}
+				</div>
+
+				@form.Item() {
+					@form.Label(form.LabelProps{ For: "filter-sort-by" }) { Sort by }
+					@selectbox.SelectBox(selectbox.Props{
+						ID: "filter-sort-by",
+					}) {
+						@selectbox.Trigger(selectbox.TriggerProps{
+							Name: "sort",
+						}) {
+							@selectbox.Value(selectbox.ValueProps{
+								Placeholder: "Select column",
+							})
+						}
+						@selectbox.Content() {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{ Value: "id" }) { ID }
+								@selectbox.Item(selectbox.ItemProps{ Value: "name" }) { Name }
+								@selectbox.Item(selectbox.ItemProps{ Value: "job_title" }) { Job Title }
+								@selectbox.Item(selectbox.ItemProps{ Value: "status" }) { Status }
+								@selectbox.Item(selectbox.ItemProps{ Value: "hire_date" }) { Hire Date }
+								@selectbox.Item(selectbox.ItemProps{ Value: "salary" }) { Salary }
+								@selectbox.Item(selectbox.ItemProps{ Value: "created_at" }) { Created at }
+							}
+						}
+					}
+				}
+
+				@dialog.Footer() {
+					<div class="flex justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</div>
+				}
+				</div>
+			</form>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Operations Bar (Add button)
+// ---------------------------------------------------------------------
+templ employeesOperationsBar(addErrs Form) {
+	@EmployeesAddDialog(addErrs)
+}
+
+// ---------------------------------------------------------------------
+// Add Dialog
+// ---------------------------------------------------------------------
+templ EmployeesAddDialog(errs Form) {
+	<htmx-partial hx-target="#employees-add-dialog">
+		@dialog.Dialog(dialog.Props{ ID: "employees-add-dialog" }) {
+			@dialog.Trigger() {
+				@button.Button(button.Props{ Variant: button.VariantOutline }) {
+					Add employee
+				}
+			}
+			@dialog.Content(dialog.ContentProps{ Class: "max-w-md" }) {
+				@dialog.Header() {
+					@dialog.Title() { Add employee }
+					@dialog.Description() { Add a new employee. Click "Add" when you're done. }
+					@EmployeesAddContent(errs)
+				}
+			}
+		}
+	</htmx-partial>
+}
+
+templ EmployeesAddContent(userForm Form) {
+	<htmx-partial hx-target="#employees-add-content">
+		<form
+			hx-post="/employees"
+			hx-push-url="true"
+			id="employees-add-content"
+			class="flex gap-6 flex-col"
+		>
+			{{ nameField := userForm["name"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-name" }) { Name }
+				if nameField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "employees-add-name",
+						Name:        "name",
+						Value:       nameField.Value,
+						Type:        input.TypeText,
+						Placeholder: "John Doe",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "employees-add-name",
+						Name:        "name",
+						Value:       nameField.Value,
+						Type:        input.TypeText,
+						Placeholder: "John Doe",
+						HasError:    true,
+					})
+					@form.Description() { Enter full employee name. }
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ nameField.Err.Error() }
+					}
+				}
+			}
+
+			{{ statusField := userForm["status"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-status" }) { Status }
+				@selectbox.SelectBox(selectbox.Props{
+					ID: "employee-add-status",
+				}) {
+					@selectbox.Trigger(selectbox.TriggerProps{
+						Name:     "status",
+						HasError: statusField.Err != nil,
+					}) {
+						@selectbox.Value(selectbox.ValueProps{
+							Placeholder: "Select status",
+						})
+					}
+					@selectbox.Content() {
+						@selectbox.Group() {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "available",
+								Selected: statusField.Value == "available",
+							}) {
+								Available
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "assigned",
+								Selected: statusField.Value == "assigned",
+							}) {
+								Assigned
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "unavailable",
+								Selected: statusField.Value == "unavailable",
+							}) {
+								Unavailable
+							}
+						}
+					}
+				}
+				if statusField.Err != nil {
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ statusField.Err.Error() }
+					}
+				}
+			}
+
+			{{ jobField := userForm["job_title"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-job" }) { Job Title }
+				@selectbox.SelectBox(selectbox.Props{
+					ID: "employee-add-job",
+				}) {
+					@selectbox.Trigger(selectbox.TriggerProps{
+						Name:     "job_title",
+						HasError: jobField.Err != nil,
+					}) {
+						@selectbox.Value(selectbox.ValueProps{
+							Placeholder: "Select job title",
+						})
+					}
+					@selectbox.Content() {
+						@selectbox.Group() {
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "driver",
+								Selected: jobField.Value == "driver",
+							}) {
+								Driver
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "dispatcher",
+								Selected: jobField.Value == "dispatcher",
+							}) {
+								Dispatcher
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "mechanic",
+								Selected: jobField.Value == "mechanic",
+							}) {
+								Mechanic
+							}
+							@selectbox.Item(selectbox.ItemProps{
+								Value:    "logistics_manager",
+								Selected: jobField.Value == "logistics_manager",
+							}) {
+								Logistics Manager
+							}
+						}
+					}
+				}
+				if jobField.Err != nil {
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ jobField.Err.Error() }
+					}
+				}
+			}
+
+			{{ hireDateField := userForm["hire_date"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-hire-date" }) { Hire Date }
+				if hireDateField.Err == nil {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "employee-add-hire-date",
+						Name:  "hire_date",
+						Value: parseDate(hireDateField.Value),
+					})
+				} else {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:       "employee-add-hire-date",
+						Name:     "hire_date",
+						Value:    parseDate(hireDateField.Value),
+						HasError: true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ hireDateField.Err.Error() }
+					}
+				}
+			}
+
+			{{ salaryField := userForm["salary"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-salary" }) { Salary }
+				if salaryField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "employee-add-salary",
+						Name:        "salary",
+						Type:        input.TypeNumber,
+						Value:       salaryField.Value,
+						Placeholder: "50000.00",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "employee-add-salary",
+						Name:        "salary",
+						Type:        input.TypeText,
+						Value:       salaryField.Value,
+						Placeholder: "50000.00",
+						HasError:    true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ salaryField.Err.Error() }
+					}
+				}
+			}
+
+			{{ licenseIssuedField := userForm["license_issued"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-license-issued" }) { License Issued }
+				if licenseIssuedField.Err == nil {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "employee-add-license-issued",
+						Name:  "license_issued",
+						Value: parseDate(licenseIssuedField.Value),
+					})
+				} else {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:       "employee-add-license-issued",
+						Name:     "license_issued",
+						Value:    parseDate(licenseIssuedField.Value),
+						HasError: true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ licenseIssuedField.Err.Error() }
+					}
+				}
+			}
+
+			{{ licenseExpField := userForm["license_expiration"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "employee-add-license-exp" }) { License Expiration }
+				if licenseExpField.Err == nil {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "employee-add-license-exp",
+						Name:  "license_expiration",
+						Value: parseDate(licenseExpField.Value),
+					})
+				} else {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:       "employee-add-license-exp",
+						Name:     "license_expiration",
+						Value:    parseDate(licenseExpField.Value),
+						HasError: true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ licenseExpField.Err.Error() }
+					}
+				}
+			}
+
+			@button.Button(button.Props{
+				Type:    button.TypeSubmit,
+				Variant: button.VariantDefault,
+			}) {
+				Add
+			}
+		</form>
+	</htmx-partial>
+}
+
+// helper to convert string to time.Time for datepicker (zero value if empty/invalid)
+func parseDate(s string) time.Time {
+	t, _ := time.Parse("2006-01-02", s)
+	return t
+}
+
+// ---------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------
+templ EmployeesPagination(page, totalPages int32, filter models.EmployeeFilter) {
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	{{ query := buildEmployeeQueryString(filter) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#employees-table",
+						"hx-push-url": "true",
+						"hx-get":      buildEmployeePageURL(query, p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#employees-table",
+							"hx-push-url": "true",
+							"hx-get":      buildEmployeePageURL(query, 1),
+						},
+					}) { 1 }
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+			}
+			for _, pg := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#employees-table",
+							"hx-push-url": "true",
+							"hx-get":      buildEmployeePageURL(query, pg),
+						},
+						IsActive: pg == p.CurrentPage,
+					}) { { fmt.Sprint(pg) } }
+				}
+			}
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#employees-table",
+							"hx-push-url": "true",
+							"hx-get":      buildEmployeePageURL(query, p.TotalPages),
+						},
+					}) { { fmt.Sprint(p.TotalPages) } }
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#employees-table",
+						"hx-push-url": "true",
+						"hx-get":      buildEmployeePageURL(query, p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}
+
+func buildEmployeeQueryString(filter models.EmployeeFilter) string {
+	params := []string{}
+	if filter.Name.Set && filter.Name.Value != "" {
+		params = append(params, "name="+filter.Name.Value)
+	}
+	if filter.JobTitle.Set && filter.JobTitle.Value != "" {
+		params = append(params, "job_title="+string(filter.JobTitle.Value))
+	}
+	if filter.Status.Set && filter.Status.Value != "" {
+		params = append(params, "status="+string(filter.Status.Value))
+	}
+	if filter.SalaryMin.Set {
+		params = append(params, "salary_min="+filter.SalaryMin.Value.String())
+	}
+	if filter.SalaryMax.Set {
+		params = append(params, "salary_max="+filter.SalaryMax.Value.String())
+	}
+	if filter.SortBy.Set {
+		params = append(params, "sort="+filter.SortBy.Value)
+	}
+	if filter.SortOrder.Set {
+		params = append(params, "order="+filter.SortOrder.Value)
+	}
+	return strings.Join(params, "&")
+}
+
+func buildEmployeePageURL(baseQuery string, page int) string {
+	if baseQuery == "" {
+		return fmt.Sprintf("/employees?page=%d", page)
+	}
+	return fmt.Sprintf("/employees?%s&page=%d", baseQuery, page)
+}

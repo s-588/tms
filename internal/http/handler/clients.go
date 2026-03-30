@@ -6,17 +6,15 @@ import (
 	"log/slog"
 	"net/http"
 	"net/mail"
-	"regexp"
 	"strconv"
-	"time"
+	"strings"
+	"unicode"
 	"unicode/utf8"
 
+	"github.com/nyaruka/phonenumbers"
 	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/db"
 	"github.com/s-588/tms/internal/ui"
-)
-
-var (
-	phoneRegex = regexp.MustCompile(`^[+]?[0-9\\-\\s()]{7,25}$`)
 )
 
 // GetClientsPage just retrieves clients from database and render clients page.
@@ -61,42 +59,22 @@ func parseClientFilters(r *http.Request) models.ClientFilter {
 	filter := models.ClientFilter{}
 	q := r.URL.Query()
 
-	if err := checkClientName(q.Get("name")); q.Has("name") && err == nil{
+	if err := checkClientName(q.Get("name")); q.Has("name") && err == nil {
 		filter.Name.SetValue(q.Get("name"))
 	}
-	if err := checkEmail("email"); q.Has("email") && err == nil{
+	if err := checkEmail(q.Get("email")); q.Has("email") && err == nil {
 		filter.Email.SetValue(q.Get("email"))
 	}
-	if err := checkPhone("phone"); q.Has("phone") && err == nil{
-		filter.Phone.SetValue(q.Get("phone"))
+	if phone,err := checkPhone(q.Get("phone")); q.Has("phone") && err == nil {
+		filter.Phone.SetValue(phone)
 	}
 	if q.Has("email_verified") {
 		emailVerifiedStr := q.Get("email_verified")
 		switch emailVerifiedStr {
-case "true":
+		case "true":
 			filter.EmailVerified.SetValue(true)
 		case "false":
 			filter.EmailVerified.SetValue(false)
-		}
-	}
-	if q.Has("created_from") && q.Has("created_from") {
-		if t, err := time.Parse("2006-01-02", q.Get("created_from")); err == nil {
-			filter.CreatedFrom.SetValue(t)
-		}
-	}
-	if q.Has("created_to") {
-		if t, err := time.Parse("2006-01-02", q.Get("created_to")); err == nil {
-			filter.CreatedTo.SetValue(t)
-		}
-	}
-	if q.Has("updated_from") {
-		if t, err := time.Parse("2006-01-02", q.Get("updated_from")); err == nil {
-			filter.UpdatedFrom.SetValue(t)
-		}
-	}
-	if q.Has("updated_to") {
-		if t, err := time.Parse("2006-01-02", q.Get("updated_to")); err == nil {
-			filter.UpdatedTo.SetValue(t)
 		}
 	}
 	if q.Has("sort") {
@@ -147,22 +125,37 @@ func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 	hasError, form := parseClientForm(r)
 	if hasError != nil {
 		slog.Debug("incorrect input data for adding client", "data", form)
-		ui.ClientsAddContent(form).Render(r.Context(), w)
+		ui.ClientsAddContent(form, true).Render(r.Context(), w)
 		return
 	}
 
-	_, err := h.DB.CreateClient(r.Context(),
-		form["name"].Value, form["email"].Value, form["phone"].Value)
+	_, err := h.DB.CreateClient(r.Context(), db.CreateClientArgs{
+		Name:  form["name"].Value,
+		Email: form["email"].Value,
+		Phone: form["phone"].Value,
+	})
 	if err != nil {
-		slog.Error("can't create client", "error", err)
-		ui.Toast("error", "Can't create user", "Something went wrong").Render(r.Context(), w)
-		ui.ClientsAddContent(form).Render(r.Context(), w)
-		return
+		switch {
+		case errors.Is(err, db.ErrDuplicateEmail):
+			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrDuplicatePhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		default:
+			slog.Error("can't create client", "error", err)
+			ui.Toast("error", "Can't create user", "Something went wrong").Render(r.Context(), w)
+			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			return
+		}
 	}
 
 	slog.Debug("adding new client", "data", form)
 	ui.Toast("success", "User created", fmt.Sprintf("User %s successfully created", form["name"].Value)).Render(r.Context(), w)
-	// h.GetClients(w, r)
+	ui.ClientsAddContent(ui.Form{}, true).Render(r.Context(), w)
+	h.GetClients(w, r)
 }
 
 func parseClientForm(r *http.Request) (err error, form ui.Form) {
@@ -193,9 +186,10 @@ func parseClientForm(r *http.Request) (err error, form ui.Form) {
 	form["phone"] = ui.FormField{
 		Value: phone,
 	}
-	if err = checkPhone(phone); err != nil {
+	if p, e := checkPhone(phone); e != nil {
+		err = e
 		form["phone"] = ui.FormField{
-			Value: phone,
+			Value: p,
 			Err:   err,
 		}
 	}
@@ -219,12 +213,25 @@ func checkEmail(email string) error {
 }
 
 // checkPhone validates phone format using a regex
-func checkPhone(phone string) error {
-	if !phoneRegex.MatchString(phone) {
-		slog.Debug("incorrect phone format", "phone", phone)
-		return errors.New("incorrect phone format")
+func checkPhone(phone string) (string, error) {
+	s := strings.Builder{}
+	for _, ch := range phone{
+		if unicode.IsDigit(ch){
+			s.WriteRune(ch)
+		}
 	}
-	return nil
+	p, err := phonenumbers.Parse(s.String(), "BY")
+	if err != nil {
+		slog.Debug("not a phone number", "phone", phone, "error", err)
+		return phone, errors.New("not a phone")
+	}
+	
+	if !phonenumbers.IsValidNumberForRegion(p,"BY"){
+		slog.Debug("incorrect phone format", "phone", p.String())
+		return phone, errors.New("incorrect phone format for Belarus")
+	}
+
+	return p.String(), nil
 }
 
 // DeleteClient handler process soft delete of client with id parsed from path.
@@ -261,14 +268,14 @@ func (h Handler) BulkDeleteClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ids []int
+	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse client id", "error", err, "id", idStr)
 			continue
 		}
-		ids = append(ids, id)
+		ids = append(ids, int32(id))
 	}
 
 	if err := h.DB.BulkSoftDeleteClients(r.Context(), ids); err != nil {
@@ -289,36 +296,59 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// TODO: process a not existing client error
-	existingClient, err := h.DB.GetClient(r.Context(), id)
+	existing, err := h.DB.GetClient(r.Context(), id)
 	if err != nil {
 		slog.Error("can't recieve client", "error", err)
 		ui.Toast("error", "Internal error", "Something wen wrong")
+		h.GetClientHandler(w,r)
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't http form", "error", err)
 		ui.Toast("error", "Bad request", "Invalid form format")
+		h.GetClientHandler(w,r)
 		return
 	}
 
 	err, form := parseClientForm(r)
 	if err != nil {
-		slog.Debug("can't update clients", "form",form, "err",err)
-		ui.ClientsViewSheetContent(existingClient, form).Render(r.Context(), w)
+		slog.Debug("can't update clients", "form", form, "err", err)
+		ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
 		return
 	}
 
-	if err := h.DB.UpdateClient(r.Context(), id, form["name"].Value, form["email"].Value, form["phone"].Value); err != nil {
-		slog.Error("can't update client", "error", err, "id", id)
-		ui.Toast("error", "Internal error", "something went wrong")
-		return
+	if err := h.DB.UpdateClient(r.Context(), db.UpdateClientArgs{
+		ClientID: id,
+		Name:     form["name"].Value,
+		Email:    form["email"].Value,
+		Phone:    form["phone"].Value,
+	}); err != nil {
+		switch {
+		case errors.Is(err, db.ErrDuplicateEmail):
+			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrDuplicatePhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		case errors.Is(err, db.ErrIncorrectPhone):
+			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("incorrect phone format")}
+			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+			return
+		default:
+			slog.Error("can't update client", "error", err, "id", id)
+			ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+			h.GetClientHandler(w,r)
+			return
+		}
 	}
 
 	slog.Debug("update client", "form data", form)
-	ui.Toast("success", "Client updated", "Client successfully updated")
+	ui.Toast("success", "Client updated", "Client successfully updated").Render(r.Context(),w)
 	h.GetClientHandler(w, r)
-	h.GetClients(w,r)
+	h.GetClients(w, r)
 }
 
 // VerifyEmail handler retrieve token from path and check if it exists in the

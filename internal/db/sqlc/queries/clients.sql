@@ -25,12 +25,10 @@ SELECT * FROM clients
 WHERE email = sqlc.arg('email') AND deleted_at IS NULL;
 
 -- name: GetClientOrders :many
-SELECT o.*,
-       count(*) OVER() AS total_count
+SELECT o.*
 FROM orders o
 WHERE o.client_id = sqlc.arg('client_id') AND o.deleted_at IS NULL
-ORDER BY o.created_at DESC
-LIMIT $1 OFFSET $2;
+ORDER BY o.created_at DESC;
 
 -- name: GetClients :many
 SELECT *,
@@ -41,8 +39,6 @@ WHERE deleted_at IS NULL
   AND (sqlc.narg('email_filter')::text IS NULL OR email ILIKE '%' || sqlc.narg('email_filter')::text || '%')
   AND (sqlc.narg('phone_filter')::text IS NULL OR phone ILIKE '%' || sqlc.narg('phone_filter')::text || '%')
   AND (sqlc.narg('email_verified_filter')::boolean IS NULL OR email_verified = sqlc.narg('email_verified_filter')::boolean)
-  AND (sqlc.narg('score_min_filter')::smallint IS NULL OR score >= sqlc.narg('score_min_filter')::smallint)
-  AND (sqlc.narg('score_max_filter')::smallint IS NULL OR score <= sqlc.narg('score_max_filter')::smallint)
 ORDER BY
     CASE WHEN sqlc.arg('sort_order')::text = 'ASC' THEN
         CASE sqlc.arg('sort_by')::text
@@ -89,6 +85,7 @@ UPDATE clients
 SET
     name = sqlc.arg('name')::text,
     email = sqlc.arg('email')::text,
+    email_verified = sqlc.arg('email')::text = email and email_verified,
     phone = sqlc.arg('phone')::text,
     updated_at = NOW()
 WHERE client_id = sqlc.arg('client_id');
@@ -100,3 +97,10 @@ SET
     email_token = NULL,
     email_token_expiration = NULL
 WHERE email_token = sqlc.arg('email_token');
+
+-- name: CountClientOrders :one
+SELECT
+			COUNT(*) AS total_orders,
+			COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_orders
+		FROM orders
+		WHERE client_id = $1 AND deleted_at IS NULL;

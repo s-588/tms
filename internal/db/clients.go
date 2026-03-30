@@ -2,33 +2,62 @@ package db
 
 import (
 	"context"
-	"log/slog"
-	"strings"
+	"errors"
+	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
+	"github.com/s-588/tms/internal/ui"
 )
 
-func (db DB) CreateClient(ctx context.Context, name, email, phone string) (models.Client, error) {
+type CreateClientArgs struct {
+	Name  string
+	Email string
+	Phone string
+}
+
+func (db DB) CreateClient(ctx context.Context, args CreateClientArgs) (models.Client, error) {
 	arg := generated.CreateClientParams{
-		Name:  name,
-		Email: email,
-		Phone: phone,
+		Name:  args.Name,
+		Email: args.Email,
+		Phone: args.Phone,
 	}
 	genClient, err := db.queries.CreateClient(ctx, arg)
 	if err != nil {
-		return models.Client{}, err
+		return models.Client{}, parseClientError(err)
 	}
 	return convertGeneratedClientToModel(genClient), nil
 }
 
-func (db DB) GetClient(ctx context.Context, clientID int) (models.Client, error) {
-	genClient, err := db.queries.GetClient(ctx, int32(clientID))
+func (db DB) GetClient(ctx context.Context, clientID int32) (models.Client, error) {
+	genClient, err := db.queries.GetClient(ctx, clientID)
 	if err != nil {
-		return models.Client{}, err
+		return models.Client{}, parseClientError(err)
 	}
-	return convertGeneratedClientToModel(genClient), nil
+	orders, err := db.queries.GetClientOrders(ctx, clientID)
+	c := convertGeneratedClientToModel(genClient)
+	for _, o := range orders {
+		c.Orders = append(c.Orders, models.Order{
+			OrderID:     o.OrderID,
+			ClientID:    o.ClientID,
+			TransportID: o.TransportID,
+			EmployeeID:  o.EmployeeID,
+			PriceID:     o.PriceID,
+			Grade:       uint8(o.Grade),
+			Distance:    o.Distance,
+			Weight:      o.Weight,
+			TotalPrice:  o.TotalPrice,
+			Status:      models.OrderStatus(o.Status),
+			NodeIDStart: o.NodeIDStart,
+			NodeIDEnd:   o.NodeIDEnd,
+			CreatedAt:   o.CreatedAt.Time,
+			UpdatedAt:   o.UpdatedAt.Time,
+			DeletedAt:   o.DeletedAt.Time,
+		})
+	}
+	return c, nil
 }
 
 func (db DB) GetClientByEmail(ctx context.Context, email string) (models.Client, error) {
@@ -41,91 +70,75 @@ func (db DB) GetClientByEmail(ctx context.Context, email string) (models.Client,
 
 func (db DB) GetClients(ctx context.Context, page int32, filter models.ClientFilter) ([]models.Client, int32, error) {
 	arg := generated.GetClientsParams{
-		Page:                               page,
+		Page:                page,
 		NameFilter:          ToStringPtr(filter.Name),
 		EmailFilter:         ToStringPtr(filter.Email),
 		PhoneFilter:         ToStringPtr(filter.Phone),
 		EmailVerifiedFilter: ToBoolPtr(filter.EmailVerified),
-		SortOrder:           strings.ToUpper(filter.SortOrder.Value),
-		SortBy:              filter.SortBy.Value,
+		SortBy:              filter.GetSortBy(),
+		SortOrder:           filter.GetSortOrder(),
 	}
-	slog.Debug("retrieving clients", "args", arg)
 	rows, err := db.queries.GetClients(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var clients []models.Client
-	var totalPage int32
+	var totalPages int32
 	for _, row := range rows {
-		totalPage = row.TotalCount
+		totalPages = row.TotalCount
 		clients = append(clients, convertGeneratedClientRowToModel(row))
 	}
-	return clients, totalPage, nil
+	return clients, totalPages, nil
 }
 
-func (db DB) UpdateClient(ctx context.Context, clientID int,
-	name, email, phone string,
-) error {
+type UpdateClientArgs struct {
+	ClientID int32
+	Name     string
+	Email    string
+	Phone    string
+}
+
+func (db DB) UpdateClient(ctx context.Context, args UpdateClientArgs) error {
 	arg := generated.UpdateClientParams{
-		ClientID: int32(clientID),
-		Name:     name,
-		Email:    email,
-		Phone:    phone,
+		ClientID: args.ClientID,
+		Name:     args.Name,
+		Email:    args.Email,
+		Phone:    args.Phone,
 	}
-	slog.Debug("updating clients", "arg",arg)
-	return db.queries.UpdateClient(ctx, arg)
+	return parseClientError(db.queries.UpdateClient(ctx, arg))
 }
 
-func (db DB) SoftDeleteClient(ctx context.Context, clientID int) error {
-	return db.queries.SoftDeleteClient(ctx, int32(clientID))
+func (db DB) SoftDeleteClient(ctx context.Context, clientID int32) error {
+	return db.queries.SoftDeleteClient(ctx, clientID)
 }
 
-func (db DB) HardDeleteClient(ctx context.Context, clientID int) error {
-	return db.queries.HardDeleteClient(ctx, int32(clientID))
+func (db DB) HardDeleteClient(ctx context.Context, clientID int32) error {
+	return db.queries.HardDeleteClient(ctx, clientID)
 }
 
-func (db DB) RestoreClient(ctx context.Context, clientID int) error {
-	return db.queries.RestoreClient(ctx, int32(clientID))
+func (db DB) RestoreClient(ctx context.Context, clientID int32) error {
+	return db.queries.RestoreClient(ctx, clientID)
 }
 
-func (db DB) BulkSoftDeleteClients(ctx context.Context, clientIDs []int) error {
-	return db.queries.BulkSoftDeleteClients(ctx, convertIntSliceToInt32(clientIDs))
+func (db DB) BulkSoftDeleteClients(ctx context.Context, clientIDs []int32) error {
+	return db.queries.BulkSoftDeleteClients(ctx, clientIDs)
 }
 
-func (db DB) BulkHardDeleteClients(ctx context.Context, clientIDs []int) error {
-	return db.queries.BulkHardDeleteClients(ctx, convertIntSliceToInt32(clientIDs))
+func (db DB) BulkHardDeleteClients(ctx context.Context, clientIDs []int32) error {
+	return db.queries.BulkHardDeleteClients(ctx, clientIDs)
 }
 
 func (db DB) VerifyClientEmail(ctx context.Context, emailToken string) error {
 	return db.queries.VerifyClientEmail(ctx, &emailToken)
 }
 
-func (db DB) SetEmailVerificationToken(ctx context.Context, clientID int, token string, expiration time.Time) error {
+func (db DB) SetEmailVerificationToken(ctx context.Context, clientID int32, token string, expiration time.Time) error {
 	arg := generated.SetEmailVerificationTokenParams{
 		EmailToken:           token,
 		EmailTokenExpiration: ToPgTypeTimestamptzFromTime(expiration),
-		ClientID:             int32(clientID),
+		ClientID:             clientID,
 	}
 	return db.queries.SetEmailVerificationToken(ctx, arg)
-}
-
-func (db DB) GetClientOrders(ctx context.Context, clientID, limit, offset int) ([]models.Order, int64, error) {
-	arg := generated.GetClientOrdersParams{
-		ClientID: int32(clientID),
-		Limit:    int32(limit),
-		Offset:   int32(offset),
-	}
-	rows, err := db.queries.GetClientOrders(ctx, arg)
-	if err != nil {
-		return nil, 0, err
-	}
-	var orders []models.Order
-	var totalCount int64
-	for _, row := range rows {
-		totalCount = row.TotalCount
-		orders = append(orders, convertGetClientOrdersRowToModel(row))
-	}
-	return orders, totalCount, nil
 }
 
 // conversion helpers
@@ -161,22 +174,46 @@ func convertGeneratedClientRowToModel(row generated.GetClientsRow) models.Client
 	}
 }
 
-func convertGetClientOrdersRowToModel(row generated.GetClientOrdersRow) models.Order {
-	return models.Order{
-		OrderID:     row.OrderID,
-		ClientID:    row.ClientID,
-		TransportID: row.TransportID,
-		EmployeeID:  row.EmployeeID,
-		Grade:       uint8(row.Grade),
-		Distance:    row.Distance,
-		Weight:      row.Weight,
-		TotalPrice:  row.TotalPrice,
-		PriceID:     row.PriceID,
-		Status:      models.OrderStatus(row.Status),
-		NodeIDStart: row.NodeIDStart,
-		NodeIDEnd:   row.NodeIDEnd,
-		CreatedAt:   fromPgTimestamptz(row.CreatedAt),
-		UpdatedAt:   fromPgTimestamptz(row.UpdatedAt),
-		DeletedAt:   fromPgTimestamptz(row.DeletedAt),
+func (db DB) ListClients(ctx context.Context) ([]ui.ListItem, error) {
+	rows, err := db.queries.ListClients(ctx)
+	if err != nil {
+		return nil, err
 	}
+	items := make([]ui.ListItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, ui.ListItem{
+			ID:   r.ClientID,
+			Name: r.Name,
+		})
+	}
+	return items, nil
+}
+
+func parseClientError(err error) error {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
+		switch pgErr.Code {
+		case "23505": // unique constaint violation
+			switch pgErr.ConstraintName {
+			case "clients_email_key":
+				return ErrDuplicateEmail
+			case "clients_phone_key":
+				return ErrDuplicatePhone
+			case "23514": // check constaint violation
+				switch pgErr.ConstraintName {
+				case "clients_phone_check":
+					return ErrIncorrectPhone
+				}
+			}
+			return fmt.Errorf("uknown error: %w", err)
+		}
+	}
+	return err
+}
+
+func (db DB) CountClientsOrders(ctx context.Context, id int32) (total int64, canceled int64, err error) {
+	rows, err := db.queries.CountClientOrders(ctx, id)
+	if err != nil {
+		return 0, 0, parseClientError(err)
+	}
+	return rows.TotalOrders, rows.CancelledOrders, nil
 }

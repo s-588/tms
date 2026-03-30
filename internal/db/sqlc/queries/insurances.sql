@@ -28,7 +28,7 @@ LIMIT 1;
 
 -- name: GetInsurances :many
 SELECT *,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM insurances
 WHERE deleted_at IS NULL
   AND (sqlc.narg('transport_id_filter')::int IS NULL OR transport_id = sqlc.narg('transport_id_filter')::int)
@@ -40,13 +40,9 @@ WHERE deleted_at IS NULL
   AND (sqlc.narg('payment_max')::numeric IS NULL OR payment <= sqlc.narg('payment_max')::numeric)
   AND (sqlc.narg('coverage_min')::numeric IS NULL OR coverage >= sqlc.narg('coverage_min')::numeric)
   AND (sqlc.narg('coverage_max')::numeric IS NULL OR coverage <= sqlc.narg('coverage_max')::numeric)
-  AND (sqlc.narg('created_from')::timestamptz IS NULL OR created_at >= sqlc.narg('created_from')::timestamptz)
-  AND (sqlc.narg('created_to')::timestamptz IS NULL OR created_at <= sqlc.narg('created_to')::timestamptz)
-  AND (sqlc.narg('updated_from')::timestamptz IS NULL OR updated_at >= sqlc.narg('updated_from')::timestamptz)
-  AND (sqlc.narg('updated_to')::timestamptz IS NULL OR updated_at <= sqlc.narg('updated_to')::timestamptz)
 ORDER BY
-    CASE WHEN sqlc.narg('sort_order')::text = 'ASC' THEN
-        CASE sqlc.narg('sort_by')::text
+    CASE WHEN sqlc.arg('sort_order')::text = 'ASC' THEN
+        CASE sqlc.arg('sort_by')::text
             WHEN 'insurance_id' THEN insurance_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'insurance_date' THEN insurance_date::text
@@ -57,8 +53,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN sqlc.narg('sort_order')::text = 'DESC' THEN
-        CASE sqlc.narg('sort_by')::text
+    CASE WHEN sqlc.arg('sort_order')::text = 'DESC' THEN
+        CASE sqlc.arg('sort_by')::text
             WHEN 'insurance_id' THEN insurance_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'insurance_date' THEN insurance_date::text
@@ -69,7 +65,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+LIMIT 20 OFFSET 20 * (sqlc.arg('page')::integer - 1);
 
 -- name: HardDeleteInsurance :exec
 DELETE FROM insurances WHERE insurance_id = sqlc.arg('insurance_id');
@@ -83,10 +79,10 @@ UPDATE insurances SET deleted_at = NOW() WHERE insurance_id = sqlc.arg('insuranc
 -- name: UpdateInsurance :exec
 UPDATE insurances
 SET
-    transport_id = COALESCE(sqlc.narg('transport_id')::int, transport_id),
-    insurance_date = COALESCE(sqlc.narg('insurance_date')::date, insurance_date),
-    insurance_expiration = COALESCE(sqlc.narg('insurance_expiration')::date, insurance_expiration),
-    payment = COALESCE(sqlc.narg('payment')::numeric, payment),
-    coverage = COALESCE(sqlc.narg('coverage')::numeric, coverage),
+    transport_id = sqlc.arg('transport_id')::int,
+    insurance_date = sqlc.arg('insurance_date')::date,
+    insurance_expiration = sqlc.arg('insurance_expiration')::date,
+    payment = sqlc.arg('payment')::numeric,
+    coverage = sqlc.arg('coverage')::numeric,
     updated_at = NOW()
 WHERE insurance_id = sqlc.arg('insurance_id');

@@ -240,8 +240,9 @@ type Insurance struct {
 
 type Node struct {
 	NodeID    int32
+	Address   string
 	Name      *string
-	Geom      pgtype.Point
+	Geom      []byte
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 	DeletedAt pgtype.Timestamptz
@@ -254,12 +255,12 @@ type Order struct {
 	EmployeeID  int32
 	PriceID     int32
 	Grade       int16
-	Distance    int32
+	Distance    float64
 	Weight      int32
 	TotalPrice  decimal.Decimal
 	Status      OrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
+	NodeIDStart int32
+	NodeIDEnd   int32
 	CreatedAt   pgtype.Timestamptz
 	UpdatedAt   pgtype.Timestamptz
 	DeletedAt   pgtype.Timestamptz
@@ -268,8 +269,8 @@ type Order struct {
 type Price struct {
 	PriceID   int32
 	CargoType string
-	Weight    int32
-	Distance  int32
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
 	CreatedAt pgtype.Timestamptz
 	UpdatedAt pgtype.Timestamptz
 	DeletedAt pgtype.Timestamptz

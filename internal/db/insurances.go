@@ -4,26 +4,26 @@ import (
 	"context"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db/generated"
 	"github.com/shopspring/decimal"
 )
 
-// CreateInsurance inserts a new insurance record.
-func (db DB) CreateInsurance(ctx context.Context,
-	transportID int32,
-	insuranceDate time.Time,
-	insuranceExpiration time.Time,
-	payment decimal.Decimal,
-	coverage decimal.Decimal,
-) (models.Insurance, error) {
+type CreateInsuranceArgs struct {
+	TransportID         int32
+	InsuranceDate       time.Time
+	InsuranceExpiration time.Time
+	Payment             decimal.Decimal
+	Coverage            decimal.Decimal
+}
+
+func (db DB) CreateInsurance(ctx context.Context, args CreateInsuranceArgs) (models.Insurance, error) {
 	arg := generated.CreateInsuranceParams{
-		TransportID:         transportID,
-		InsuranceDate:       pgtype.Date{Time: insuranceDate, Valid: true},
-		InsuranceExpiration: pgtype.Date{Time: insuranceExpiration, Valid: true},
-		Payment:             payment,
-		Coverage:            coverage,
+		TransportID:         args.TransportID,
+		InsuranceDate:       ToPgTypeDateFromTime(args.InsuranceDate),
+		InsuranceExpiration: ToPgTypeDateFromTime(args.InsuranceExpiration),
+		Payment:             args.Payment,
+		Coverage:            args.Coverage,
 	}
 	genInsurance, err := db.queries.CreateInsurance(ctx, arg)
 	if err != nil {
@@ -32,30 +32,26 @@ func (db DB) CreateInsurance(ctx context.Context,
 	return convertGeneratedInsuranceToModel(genInsurance), nil
 }
 
-// GetInsuranceByID returns an insurance by its ID.
-func (db DB) GetInsuranceByID(ctx context.Context, insuranceID int) (models.Insurance, error) {
-	genInsurance, err := db.queries.GetInsurance(ctx, int32(insuranceID))
+func (db DB) GetInsuranceByID(ctx context.Context, insuranceID int32) (models.Insurance, error) {
+	genInsurance, err := db.queries.GetInsurance(ctx, insuranceID)
 	if err != nil {
 		return models.Insurance{}, err
 	}
 	return convertGeneratedInsuranceToModel(genInsurance), nil
 }
 
-// GetInsuranceByTransport returns the most recent insurance for a given transport.
-func (db DB) GetInsuranceByTransport(ctx context.Context, transportID int) (models.Insurance, error) {
-	genInsurance, err := db.queries.GetInsuranceByTransport(ctx, int32(transportID))
+func (db DB) GetInsuranceByTransport(ctx context.Context, transportID int32) (models.Insurance, error) {
+	genInsurance, err := db.queries.GetInsuranceByTransport(ctx, transportID)
 	if err != nil {
 		return models.Insurance{}, err
 	}
 	return convertGeneratedInsuranceToModel(genInsurance), nil
 }
 
-// GetInsurances returns a paginated list of insurances matching the filter.
-func (db DB) GetInsurances(ctx context.Context, limit, offset int, filter models.InsuranceFilter) ([]models.Insurance, int64, error) {
+func (db DB) GetInsurances(ctx context.Context, page int32, filter models.InsuranceFilter) ([]models.Insurance, int32, error) {
 	arg := generated.GetInsurancesParams{
-		Limit:                   int32(limit),
-		Offset:                  int32(offset),
-		TransportIDFilter:       filter.TransportID.ToPtr(),
+		Page:                    page,
+		TransportIDFilter:       ToInt32Ptr(filter.TransportID),
 		InsuranceDateFrom:       optionalTimeToPgDate(filter.InsuranceDateFrom),
 		InsuranceDateTo:         optionalTimeToPgDate(filter.InsuranceDateTo),
 		InsuranceExpirationFrom: optionalTimeToPgDate(filter.InsuranceExpirationFrom),
@@ -64,69 +60,61 @@ func (db DB) GetInsurances(ctx context.Context, limit, offset int, filter models
 		PaymentMax:              optionalDecimalToPgNumeric(filter.PaymentMax),
 		CoverageMin:             optionalDecimalToPgNumeric(filter.CoverageMin),
 		CoverageMax:             optionalDecimalToPgNumeric(filter.CoverageMax),
-		CreatedFrom:             optionalTimeToPgTimestamptz(filter.CreatedFrom),
-		CreatedTo:               optionalTimeToPgTimestamptz(filter.CreatedTo),
-		UpdatedFrom:             optionalTimeToPgTimestamptz(filter.UpdatedFrom),
-		UpdatedTo:               optionalTimeToPgTimestamptz(filter.UpdatedTo),
-		SortBy:                  filter.SortBy.ToPtr(),
-		SortOrder:               filter.SortOrder.ToPtr(),
+		SortBy:                  filter.SortBy.Value,
+		SortOrder:               filter.SortOrder.Value,
 	}
 	rows, err := db.queries.GetInsurances(ctx, arg)
 	if err != nil {
 		return nil, 0, err
 	}
 	var insurances []models.Insurance
-	var totalCount int64
+	var totalPages int32
 	for _, row := range rows {
-		totalCount = row.TotalCount
+		totalPages = row.TotalCount
 		insurances = append(insurances, convertGeneratedInsuranceRowToModel(row))
 	}
-	return insurances, totalCount, nil
+	return insurances, totalPages, nil
 }
 
-// UpdateInsurance updates mutable fields of an insurance.
-func (db DB) UpdateInsurance(ctx context.Context,
-	insuranceID int,
-	transportID *int32,
-	insuranceDate *time.Time,
-	insuranceExpiration *time.Time,
-	payment *decimal.Decimal,
-	coverage *decimal.Decimal,
-) error {
+type UpdateInsuranceArgs struct {
+	InsuranceID         int32
+	TransportID         int32
+	InsuranceDate       time.Time
+	InsuranceExpiration time.Time
+	Payment             decimal.Decimal
+	Coverage            decimal.Decimal
+}
+
+func (db DB) UpdateInsurance(ctx context.Context, args UpdateInsuranceArgs) error {
 	arg := generated.UpdateInsuranceParams{
-		InsuranceID:         int32(insuranceID),
-		TransportID:         transportID,
-		InsuranceDate:       timeToPgDatePtr(insuranceDate),
-		InsuranceExpiration: timeToPgDatePtr(insuranceExpiration),
-		Payment:             fromDecimalPtrToPgNumeric(payment),
-		Coverage:            fromDecimalPtrToPgNumeric(coverage),
+		InsuranceID:         args.InsuranceID,
+		TransportID:         args.TransportID,
+		InsuranceDate:       ToPgTypeDateFromTime(args.InsuranceDate),
+		InsuranceExpiration: ToPgTypeDateFromTime(args.InsuranceExpiration),
+		Payment:             args.Payment,
+		Coverage:            args.Coverage,
 	}
 	return db.queries.UpdateInsurance(ctx, arg)
 }
 
-// SoftDeleteInsurance marks an insurance as deleted.
-func (db DB) SoftDeleteInsurance(ctx context.Context, insuranceID int) error {
-	return db.queries.SoftDeleteInsurance(ctx, int32(insuranceID))
+func (db DB) SoftDeleteInsurance(ctx context.Context, insuranceID int32) error {
+	return db.queries.SoftDeleteInsurance(ctx, insuranceID)
 }
 
-// HardDeleteInsurance permanently removes an insurance.
-func (db DB) HardDeleteInsurance(ctx context.Context, insuranceID int) error {
-	return db.queries.HardDeleteInsurance(ctx, int32(insuranceID))
+func (db DB) HardDeleteInsurance(ctx context.Context, insuranceID int32) error {
+	return db.queries.HardDeleteInsurance(ctx, insuranceID)
 }
 
-// RestoreInsurance removes the soft‑delete mark.
-func (db DB) RestoreInsurance(ctx context.Context, insuranceID int) error {
-	return db.queries.RestoreInsurance(ctx, int32(insuranceID))
+func (db DB) RestoreInsurance(ctx context.Context, insuranceID int32) error {
+	return db.queries.RestoreInsurance(ctx, insuranceID)
 }
 
-// BulkSoftDeleteInsurances soft‑deletes multiple insurances.
-func (db DB) BulkSoftDeleteInsurances(ctx context.Context, insuranceIDs []int) error {
-	return db.queries.BulkSoftDeleteInsurances(ctx, convertIntSliceToInt32(insuranceIDs))
+func (db DB) BulkSoftDeleteInsurances(ctx context.Context, insuranceIDs []int32) error {
+	return db.queries.BulkSoftDeleteInsurances(ctx, insuranceIDs)
 }
 
-// BulkHardDeleteInsurances permanently deletes multiple insurances.
-func (db DB) BulkHardDeleteInsurances(ctx context.Context, insuranceIDs []int) error {
-	return db.queries.BulkHardDeleteInsurances(ctx, convertIntSliceToInt32(insuranceIDs))
+func (db DB) BulkHardDeleteInsurances(ctx context.Context, insuranceIDs []int32) error {
+	return db.queries.BulkHardDeleteInsurances(ctx, insuranceIDs)
 }
 
 // conversion helpers
@@ -134,11 +122,11 @@ func convertGeneratedInsuranceToModel(i generated.Insurance) models.Insurance {
 	return models.Insurance{
 		InsuranceID:         i.InsuranceID,
 		TransportID:         i.TransportID,
-		InsuranceDate:       i.InsuranceDate.Time,
-		InsuranceExpiration: i.InsuranceExpiration.Time,
+		InsuranceDate:       fromPgDate(i.InsuranceDate),
+		InsuranceExpiration: fromPgDate(i.InsuranceExpiration),
 		Payment:             i.Payment,
 		Coverage:            i.Coverage,
-		CreatedAt:           i.CreatedAt.Time,
+		CreatedAt:           fromPgTimestamptz(i.CreatedAt),
 		UpdatedAt:           fromPgTimestamptz(i.UpdatedAt),
 		DeletedAt:           fromPgTimestamptz(i.DeletedAt),
 	}
@@ -148,11 +136,11 @@ func convertGeneratedInsuranceRowToModel(row generated.GetInsurancesRow) models.
 	return models.Insurance{
 		InsuranceID:         row.InsuranceID,
 		TransportID:         row.TransportID,
-		InsuranceDate:       row.InsuranceDate.Time,
-		InsuranceExpiration: row.InsuranceExpiration.Time,
+		InsuranceDate:       fromPgDate(row.InsuranceDate),
+		InsuranceExpiration: fromPgDate(row.InsuranceExpiration),
 		Payment:             row.Payment,
 		Coverage:            row.Coverage,
-		CreatedAt:           row.CreatedAt.Time,
+		CreatedAt:           fromPgTimestamptz(row.CreatedAt),
 		UpdatedAt:           fromPgTimestamptz(row.UpdatedAt),
 		DeletedAt:           fromPgTimestamptz(row.DeletedAt),
 	}

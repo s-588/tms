@@ -2,11 +2,24 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/s-588/tms/internal/config"
 	"github.com/s-588/tms/internal/db/generated"
+)
+
+var (
+	ErrIncorrectPhone = errors.New("phone have incorrect format")
+    ErrDuplicateEmail = errors.New("email already exists")
+    ErrDuplicatePhone = errors.New("phone already exists")
+
+    ErrDuplicateLicense = errors.New("license plate already exists")
+
+    ErrDuplicatePrice = errors.New("price configuration (cargo type, weight, distance) already exists")
+	
+	ErrDuplicateNodeAddress = errors.New("node with this address already exists")
 )
 
 type DB struct {

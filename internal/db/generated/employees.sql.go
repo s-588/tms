@@ -37,7 +37,7 @@ INSERT INTO employees (
 ) VALUES (
     $1::text,
     $2::employee_status,
-    $3::text,
+    $3::employee_job_title,
     $4::date,
     $5::numeric,
     $6::date,
@@ -49,7 +49,7 @@ RETURNING employee_id, name, status, job_title, hire_date, salary, license_issue
 type CreateEmployeeParams struct {
 	Name              string
 	Status            EmployeeStatus
-	JobTitle          string
+	JobTitle          EmployeeJobTitle
 	HireDate          pgtype.Date
 	Salary            decimal.Decimal
 	LicenseIssued     pgtype.Date
@@ -109,23 +109,19 @@ func (q *Queries) GetEmployee(ctx context.Context, employeeID int32) (Employee, 
 
 const getEmployees = `-- name: GetEmployees :many
 SELECT employee_id, name, status, job_title, hire_date, salary, license_issued, license_expiration, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM employees
 WHERE deleted_at IS NULL
   AND ($1::text IS NULL OR name ILIKE '%' || $1::text || '%')
-  AND ($2::text IS NULL OR job_title ILIKE '%' || $2::text || '%')
+  AND ($2::employee_job_title IS NULL OR job_title = $2)
   AND ($3::employee_status IS NULL OR status = $3::employee_status)
   AND ($4::numeric IS NULL OR salary >= $4::numeric)
   AND ($5::numeric IS NULL OR salary <= $5::numeric)
-  AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
-  AND ($7::timestamptz IS NULL OR created_at <= $7::timestamptz)
-  AND ($8::timestamptz IS NULL OR updated_at >= $8::timestamptz)
-  AND ($9::timestamptz IS NULL OR updated_at <= $9::timestamptz)
 ORDER BY
-    CASE WHEN $10::text = 'ASC' THEN
-        CASE $11::text
+    CASE WHEN $6::text = 'ASC' THEN
+        CASE $7::text
             WHEN 'name' THEN name
-            WHEN 'job_title' THEN job_title
+            WHEN 'job_title' THEN job_title::text
             WHEN 'status' THEN status::text
             WHEN 'salary' THEN salary::text
             WHEN 'hire_date' THEN hire_date::text
@@ -133,10 +129,10 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $10::text = 'DESC' THEN
-        CASE $11::text
+    CASE WHEN $6::text = 'DESC' THEN
+        CASE $7::text
             WHEN 'name' THEN name
-            WHEN 'job_title' THEN job_title
+            WHEN 'job_title' THEN job_title::text
             WHEN 'status' THEN status::text
             WHEN 'salary' THEN salary::text
             WHEN 'hire_date' THEN hire_date::text
@@ -144,23 +140,18 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $13 OFFSET $12
+LIMIT 20 OFFSET 20 * ($8::integer - 1)
 `
 
 type GetEmployeesParams struct {
 	NameFilter     *string
-	JobTitleFilter *string
+	JobTitleFilter NullEmployeeJobTitle
 	StatusFilter   NullEmployeeStatus
 	SalaryMin      pgtype.Numeric
 	SalaryMax      pgtype.Numeric
-	CreatedFrom    pgtype.Timestamptz
-	CreatedTo      pgtype.Timestamptz
-	UpdatedFrom    pgtype.Timestamptz
-	UpdatedTo      pgtype.Timestamptz
-	SortOrder      *string
-	SortBy         *string
-	Offset         int32
-	Limit          int32
+	SortOrder      string
+	SortBy         string
+	Page           int32
 }
 
 type GetEmployeesRow struct {
@@ -175,7 +166,7 @@ type GetEmployeesRow struct {
 	CreatedAt         pgtype.Timestamptz
 	UpdatedAt         pgtype.Timestamptz
 	DeletedAt         pgtype.Timestamptz
-	TotalCount        int64
+	TotalCount        int32
 }
 
 func (q *Queries) GetEmployees(ctx context.Context, arg GetEmployeesParams) ([]GetEmployeesRow, error) {
@@ -185,14 +176,9 @@ func (q *Queries) GetEmployees(ctx context.Context, arg GetEmployeesParams) ([]G
 		arg.StatusFilter,
 		arg.SalaryMin,
 		arg.SalaryMax,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -255,23 +241,23 @@ func (q *Queries) SoftDeleteEmployee(ctx context.Context, employeeID int32) erro
 const updateEmployee = `-- name: UpdateEmployee :exec
 UPDATE employees
 SET
-    name = COALESCE($1::text, name),
-    status = COALESCE($2::employee_status, status),
-    job_title = COALESCE($3::text, job_title),
-    hire_date = COALESCE($4::date, hire_date),
-    salary = COALESCE($5::numeric, salary),
-    license_issued = COALESCE($6::date, license_issued),
-    license_expiration = COALESCE($7::date, license_expiration),
+    name = $1::text,
+    status = $2::employee_status,
+    job_title = $3::employee_job_title,
+    hire_date = $4::date,
+    salary = $5::numeric,
+    license_issued = $6::date,
+    license_expiration = $7::date,
     updated_at = NOW()
 WHERE employee_id = $8
 `
 
 type UpdateEmployeeParams struct {
-	Name              *string
-	Status            NullEmployeeStatus
-	JobTitle          *string
+	Name              string
+	Status            EmployeeStatus
+	JobTitle          EmployeeJobTitle
 	HireDate          pgtype.Date
-	Salary            pgtype.Numeric
+	Salary            decimal.Decimal
 	LicenseIssued     pgtype.Date
 	LicenseExpiration pgtype.Date
 	EmployeeID        int32

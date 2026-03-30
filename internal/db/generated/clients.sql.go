@@ -9,7 +9,6 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/shopspring/decimal"
 )
 
 const bulkHardDeleteClients = `-- name: BulkHardDeleteClients :exec
@@ -28,6 +27,26 @@ UPDATE clients SET deleted_at = NOW() WHERE client_id = ANY($1::int[])
 func (q *Queries) BulkSoftDeleteClients(ctx context.Context, dollar_1 []int32) error {
 	_, err := q.db.Exec(ctx, bulkSoftDeleteClients, dollar_1)
 	return err
+}
+
+const countClientOrders = `-- name: CountClientOrders :one
+SELECT
+			COUNT(*) AS total_orders,
+			COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_orders
+		FROM orders
+		WHERE client_id = $1 AND deleted_at IS NULL
+`
+
+type CountClientOrdersRow struct {
+	TotalOrders     int64
+	CancelledOrders int64
+}
+
+func (q *Queries) CountClientOrders(ctx context.Context, clientID int32) (CountClientOrdersRow, error) {
+	row := q.db.QueryRow(ctx, countClientOrders, clientID)
+	var i CountClientOrdersRow
+	err := row.Scan(&i.TotalOrders, &i.CancelledOrders)
+	return i, err
 }
 
 const createClient = `-- name: CreateClient :one
@@ -117,48 +136,21 @@ func (q *Queries) GetClientByEmail(ctx context.Context, email string) (Client, e
 }
 
 const getClientOrders = `-- name: GetClientOrders :many
-SELECT o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at,
-       count(*) OVER() AS total_count
+SELECT o.order_id, o.client_id, o.transport_id, o.employee_id, o.price_id, o.grade, o.distance, o.weight, o.total_price, o.status, o.node_id_start, o.node_id_end, o.created_at, o.updated_at, o.deleted_at
 FROM orders o
-WHERE o.client_id = $3 AND o.deleted_at IS NULL
+WHERE o.client_id = $1 AND o.deleted_at IS NULL
 ORDER BY o.created_at DESC
-LIMIT $1 OFFSET $2
 `
 
-type GetClientOrdersParams struct {
-	Limit    int32
-	Offset   int32
-	ClientID int32
-}
-
-type GetClientOrdersRow struct {
-	OrderID     int32
-	ClientID    int32
-	TransportID int32
-	EmployeeID  int32
-	PriceID     int32
-	Grade       int16
-	Distance    int32
-	Weight      int32
-	TotalPrice  decimal.Decimal
-	Status      OrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
-	CreatedAt   pgtype.Timestamptz
-	UpdatedAt   pgtype.Timestamptz
-	DeletedAt   pgtype.Timestamptz
-	TotalCount  int64
-}
-
-func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams) ([]GetClientOrdersRow, error) {
-	rows, err := q.db.Query(ctx, getClientOrders, arg.Limit, arg.Offset, arg.ClientID)
+func (q *Queries) GetClientOrders(ctx context.Context, clientID int32) ([]Order, error) {
+	rows, err := q.db.Query(ctx, getClientOrders, clientID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []GetClientOrdersRow
+	var items []Order
 	for rows.Next() {
-		var i GetClientOrdersRow
+		var i Order
 		if err := rows.Scan(
 			&i.OrderID,
 			&i.ClientID,
@@ -175,7 +167,6 @@ func (q *Queries) GetClientOrders(ctx context.Context, arg GetClientOrdersParams
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
-			&i.TotalCount,
 		); err != nil {
 			return nil, err
 		}
@@ -196,11 +187,9 @@ WHERE deleted_at IS NULL
   AND ($2::text IS NULL OR email ILIKE '%' || $2::text || '%')
   AND ($3::text IS NULL OR phone ILIKE '%' || $3::text || '%')
   AND ($4::boolean IS NULL OR email_verified = $4::boolean)
-  AND ($5::smallint IS NULL OR score >= $5::smallint)
-  AND ($6::smallint IS NULL OR score <= $6::smallint)
 ORDER BY
-    CASE WHEN $7::text = 'ASC' THEN
-        CASE $8::text
+    CASE WHEN $5::text = 'ASC' THEN
+        CASE $6::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -210,8 +199,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $7::text = 'DESC' THEN
-        CASE $8::text
+    CASE WHEN $5::text = 'DESC' THEN
+        CASE $6::text
             WHEN 'name' THEN name
             WHEN 'email' THEN email
             WHEN 'phone' THEN phone
@@ -221,7 +210,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT 20 OFFSET 20*($9::integer-1)
+LIMIT 20 OFFSET 20*($7::integer-1)
 `
 
 type GetClientsParams struct {
@@ -229,8 +218,6 @@ type GetClientsParams struct {
 	EmailFilter         *string
 	PhoneFilter         *string
 	EmailVerifiedFilter *bool
-	ScoreMinFilter      *int16
-	ScoreMaxFilter      *int16
 	SortOrder           string
 	SortBy              string
 	Page                int32
@@ -257,8 +244,6 @@ func (q *Queries) GetClients(ctx context.Context, arg GetClientsParams) ([]GetCl
 		arg.EmailFilter,
 		arg.PhoneFilter,
 		arg.EmailVerifiedFilter,
-		arg.ScoreMinFilter,
-		arg.ScoreMaxFilter,
 		arg.SortOrder,
 		arg.SortBy,
 		arg.Page,
@@ -345,6 +330,7 @@ UPDATE clients
 SET
     name = $1::text,
     email = $2::text,
+    email_verified = $2::text = email and email_verified,
     phone = $3::text,
     updated_at = NOW()
 WHERE client_id = $4

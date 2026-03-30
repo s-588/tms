@@ -1,0 +1,773 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/table"
+	"github.com/s-588/tms/internal/ui/components/datepicker"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ---------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------
+templ InsurancesPage(insurances []models.Insurance, page, totalPages int32, filter models.InsuranceFilter) {
+	@InsurancesViewSheet(models.Insurance{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2">
+			@InsurancesFilter(filter)
+			@insurancesOperationsBar(Form{})
+		</div>
+		@InsurancesTable(insurances, page, totalPages, filter, false)
+	</div>
+}
+
+// ---------------------------------------------------------------------
+// View / Edit Sheet
+// ---------------------------------------------------------------------
+templ InsurancesViewSheet(insurance models.Insurance, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "insurances-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		@InsurancesViewSheetContent(insurance, Form{})
+	}
+}
+
+templ InsurancesViewSheetContent(insurance models.Insurance, formData Form) {
+	<div id="insurances-sheet-content">
+		@sheet.Header() {
+			@sheet.Title() {
+				{ "Insurance #" + strconv.Itoa(int(insurance.InsuranceID)) }
+			}
+			@sheet.Description() {
+				{ "Transport ID: " + strconv.Itoa(int(insurance.TransportID)) }
+			}
+		}
+		<form
+			id="insurance-edit-form"
+			class="space-y-6"
+			hx-put={ "/insurances/" + strconv.Itoa(int(insurance.InsuranceID)) }
+			hx-target="#insurances-sheet-content"
+		>
+			<div class="flex-1 p-4 space-y-6">
+
+				<!-- Insurance Details -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Insurance Details</h3>
+
+					{{ transportIDField := formData["transport_id"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "insurance-edit-transport-id" }) { Transport ID }
+						if transportIDField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-transport-id",
+								Name:        "transport_id",
+								Type:        input.TypeNumber,
+								Value:       strconv.Itoa(int(insurance.TransportID)),
+								Placeholder: "Transport ID",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-transport-id",
+								Name:        "transport_id",
+								Type:        input.TypeNumber,
+								Value:       transportIDField.Value,
+								Placeholder: "Transport ID",
+								HasError:    true,
+							})
+							@form.Description() { Enter transport ID. }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ transportIDField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- Dates -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Dates</h3>
+
+					{{ insuranceDateField := formData["insurance_date"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "insurance-edit-insurance-date" }) { Insurance Date }
+						if insuranceDateField.Err == nil {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:    "insurance-edit-insurance-date",
+								Name:  "insurance_date",
+								Value: insurance.InsuranceDate,
+							})
+						} else {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:       "insurance-edit-insurance-date",
+								Name:     "insurance_date",
+								Value:    parseDate(insuranceDateField.Value),
+								HasError: true,
+							})
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ insuranceDateField.Err.Error() }
+							}
+						}
+					}
+
+					{{ expirationDateField := formData["insurance_expiration"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "insurance-edit-expiration" }) { Expiration Date }
+						if expirationDateField.Err == nil {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:    "insurance-edit-expiration",
+								Name:  "insurance_expiration",
+								Value: insurance.InsuranceExpiration,
+							})
+						} else {
+							@datepicker.DatePicker(datepicker.Props{
+								ID:       "insurance-edit-expiration",
+								Name:     "insurance_expiration",
+								Value:    parseDate(expirationDateField.Value),
+								HasError: true,
+							})
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ expirationDateField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- Financials -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Financials</h3>
+
+					{{ paymentField := formData["payment"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "insurance-edit-payment" }) { Payment ($) }
+						if paymentField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-payment",
+								Name:        "payment",
+								Type:        input.TypeText,
+								Value:       insurance.Payment.String(),
+								Placeholder: "1000.00",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-payment",
+								Name:        "payment",
+								Type:        input.TypeText,
+								Value:       paymentField.Value,
+								Placeholder: "1000.00",
+								HasError:    true,
+							})
+							@form.Description() { Enter payment amount. }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ paymentField.Err.Error() }
+							}
+						}
+					}
+
+					{{ coverageField := formData["coverage"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "insurance-edit-coverage" }) { Coverage ($) }
+						if coverageField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-coverage",
+								Name:        "coverage",
+								Type:        input.TypeText,
+								Value:       insurance.Coverage.String(),
+								Placeholder: "50000.00",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "insurance-edit-coverage",
+								Name:        "coverage",
+								Type:        input.TypeText,
+								Value:       coverageField.Value,
+								Placeholder: "50000.00",
+								HasError:    true,
+							})
+							@form.Description() { Enter coverage amount. }
+							@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+								{ coverageField.Err.Error() }
+							}
+						}
+					}
+				</div>
+
+				<!-- Timestamps (read‑only) -->
+				<div class="space-y-2 pt-4 border-t text-xs text-muted-foreground">
+					<div>Created: { insurance.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { insurance.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+					if !insurance.DeletedAt.IsZero() {
+						<div class="text-destructive">Deleted: { insurance.DeletedAt.Format("Jan 2, 2006 15:04") }</div>
+					}
+				</div>
+			</div>
+		</form>
+
+		@sheet.Footer() {
+			<div class="flex justify-between gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantDestructive,
+					Attributes: templ.Attributes{
+						"hx-delete":  "/insurances/" + strconv.FormatInt(int64(insurance.InsuranceID), 10),
+						"hx-target":  "#insurances-table",
+						"hx-confirm": "Are you sure you want to delete this insurance?",
+					},
+				}) {
+					Delete
+				}
+				<div class="flex gap-2">
+					@button.Button(button.Props{
+						Type:    button.TypeReset,
+						Variant: button.VariantGhost,
+						Attributes: templ.Attributes{
+							"form": "insurance-edit-form",
+						},
+					}) {
+						Reset
+					}
+					@button.Button(button.Props{
+						Type:    button.TypeSubmit,
+						Variant: button.VariantDefault,
+						Attributes: templ.Attributes{
+							"form": "insurance-edit-form",
+						},
+					}) {
+						Save Changes
+					}
+					@sheet.Close(sheet.CloseProps{ For: "insurances-sheet" }) {
+						@button.Button(button.Props{ Variant: button.VariantOutline }) {
+							Close
+						}
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ viewInsuranceSheetButton(insuranceID int32) {
+	@sheet.Trigger(sheet.TriggerProps{ For: "insurances-sheet" }) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/insurances/%d", insuranceID),
+				"hx-target": "#insurances-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------
+templ InsurancesTable(insurances []models.Insurance, page, totalPages int32, filter models.InsuranceFilter, swap bool) {
+	if swap {
+		<div class="overflow-x-auto" id="insurances-table" hx-swap-oob="true">
+			@insurancesRealTable(insurances, page, totalPages, filter)
+		</div>
+	} else {
+		<div class="overflow-x-auto" id="insurances-table">
+			@insurancesRealTable(insurances, page, totalPages, filter)
+		</div>
+	}
+}
+
+templ insurancesRealTable(insurances []models.Insurance, page, totalPages int32, filter models.InsuranceFilter) {
+	@table.Table(table.Props{}) {
+		@table.Header() {
+			@table.Row() {
+				@table.Head() { ID }
+				@table.Head() { Transport ID }
+				@table.Head() { Insurance Date }
+				@table.Head() { Expiration Date }
+				@table.Head() { Payment }
+				@table.Head() { Coverage }
+				@table.Head() { Created }
+				@table.Head() { Operations }
+			}
+		}
+		@table.Body() {
+			if len(insurances) == 0 {
+				@table.Row() {
+					@table.Cell(table.CellProps{ Attributes: templ.Attributes{ "colspan": "8" } }) {
+						No insurances found
+					}
+				}
+			} else {
+				for _, insurance := range insurances {
+					@InsuranceRow(insurance)
+				}
+			}
+		}
+	}
+	@InsurancesPagination(page, totalPages, filter)
+}
+
+templ InsuranceRow(insurance models.Insurance) {
+	@table.Row() {
+		@table.Cell() { { insurance.InsuranceID } }
+		@table.Cell() { { insurance.TransportID } }
+		@table.Cell() { { insurance.InsuranceDate.Format("2006-01-02") } }
+		@table.Cell() { { insurance.InsuranceExpiration.Format("2006-01-02") } }
+		@table.Cell() { { "$" + insurance.Payment.String() } }
+		@table.Cell() { { "$" + insurance.Coverage.String() } }
+		@table.Cell() { { insurance.CreatedAt.Format("2006-01-02") } }
+		@table.Cell() {
+			@viewInsuranceSheetButton(insurance.InsuranceID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Filter Dialog
+// ---------------------------------------------------------------------
+templ InsurancesFilter(filter models.InsuranceFilter) {
+	@dialog.Dialog(dialog.Props{ ID: "insurances-filter-dialog" }) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{ Variant: button.VariantOutline }) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{ Class: "max-w-xl" }) {
+			<form
+				class="space-y-6"
+				hx-get="/insurances"
+				hx-push-url="true"
+				hx-target="#insurances-table"
+			>
+				@dialog.Header() {
+					@dialog.Title() { Filter insurances }
+				}
+
+				<div class="grid grid-cols-2 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-transport-id" }) { Transport ID }
+						@input.Input(input.Props{
+							ID:    "filter-transport-id",
+							Name:  "transport_id",
+							Type:  input.TypeNumber,
+							Value: func() string { if filter.TransportID.Set { return strconv.Itoa(int(filter.TransportID.Value)) } else { return "" } }(),
+						})
+					}
+				</div>
+
+				<div class="grid grid-cols-2 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-insurance-from" }) { Insurance Date From }
+						@datepicker.DatePicker(datepicker.Props{
+							ID:    "filter-insurance-from",
+							Name:  "insurance_from",
+							Value: func() time.Time { if filter.InsuranceDateFrom.Set { return filter.InsuranceDateFrom.Value } else { return time.Time{} } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-insurance-to" }) { Insurance Date To }
+						@datepicker.DatePicker(datepicker.Props{
+							ID:    "filter-insurance-to",
+							Name:  "insurance_to",
+							Value: func() time.Time { if filter.InsuranceDateTo.Set { return filter.InsuranceDateTo.Value } else { return time.Time{} } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-expiration-from" }) { Expiration Date From }
+						@datepicker.DatePicker(datepicker.Props{
+							ID:    "filter-expiration-from",
+							Name:  "expiration_from",
+							Value: func() time.Time { if filter.InsuranceExpirationFrom.Set { return filter.InsuranceExpirationFrom.Value } else { return time.Time{} } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-expiration-to" }) { Expiration Date To }
+						@datepicker.DatePicker(datepicker.Props{
+							ID:    "filter-expiration-to",
+							Name:  "expiration_to",
+							Value: func() time.Time { if filter.InsuranceExpirationTo.Set { return filter.InsuranceExpirationTo.Value } else { return time.Time{} } }(),
+						})
+					}
+				</div>
+
+				<div class="grid grid-cols-2 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-payment-min" }) { Payment Min ($) }
+						@input.Input(input.Props{
+							ID:    "filter-payment-min",
+							Name:  "payment_min",
+							Type:  input.TypeText,
+							Value: func() string { if filter.PaymentMin.Set { return filter.PaymentMin.Value.String() } else { return "" } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-payment-max" }) { Payment Max ($) }
+						@input.Input(input.Props{
+							ID:    "filter-payment-max",
+							Name:  "payment_max",
+							Type:  input.TypeText,
+							Value: func() string { if filter.PaymentMax.Set { return filter.PaymentMax.Value.String() } else { return "" } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-coverage-min" }) { Coverage Min ($) }
+						@input.Input(input.Props{
+							ID:    "filter-coverage-min",
+							Name:  "coverage_min",
+							Type:  input.TypeText,
+							Value: func() string { if filter.CoverageMin.Set { return filter.CoverageMin.Value.String() } else { return "" } }(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{ For: "filter-coverage-max" }) { Coverage Max ($) }
+						@input.Input(input.Props{
+							ID:    "filter-coverage-max",
+							Name:  "coverage_max",
+							Type:  input.TypeText,
+							Value: func() string { if filter.CoverageMax.Set { return filter.CoverageMax.Value.String() } else { return "" } }(),
+						})
+					}
+				</div>
+
+				@form.Item() {
+					@form.Label(form.LabelProps{ For: "filter-sort-by" }) { Sort by }
+					@selectbox.SelectBox(selectbox.Props{
+						ID: "filter-sort-by",
+					}) {
+						@selectbox.Trigger(selectbox.TriggerProps{
+							Name: "sort",
+						}) {
+							@selectbox.Value(selectbox.ValueProps{
+								Placeholder: "Select column",
+							})
+						}
+						@selectbox.Content() {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{ Value: "insurance_id" }) { ID }
+								@selectbox.Item(selectbox.ItemProps{ Value: "transport_id" }) { Transport ID }
+								@selectbox.Item(selectbox.ItemProps{ Value: "insurance_date" }) { Insurance Date }
+								@selectbox.Item(selectbox.ItemProps{ Value: "insurance_expiration" }) { Expiration Date }
+								@selectbox.Item(selectbox.ItemProps{ Value: "payment" }) { Payment }
+								@selectbox.Item(selectbox.ItemProps{ Value: "coverage" }) { Coverage }
+								@selectbox.Item(selectbox.ItemProps{ Value: "created_at" }) { Created at }
+							}
+						}
+					}
+				}
+
+				@dialog.Footer() {
+					<div class="flex justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</div>
+				}
+			</form>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Operations Bar (Add button)
+// ---------------------------------------------------------------------
+templ insurancesOperationsBar(addErrs Form) {
+	@InsurancesAddDialog(addErrs)
+}
+
+// ---------------------------------------------------------------------
+// Add Dialog
+// ---------------------------------------------------------------------
+templ InsurancesAddDialog(errs Form) {
+	<htmx-partial hx-target="#insurances-add-dialog">
+		@dialog.Dialog(dialog.Props{ ID: "insurances-add-dialog" }) {
+			@dialog.Trigger() {
+				@button.Button(button.Props{ Variant: button.VariantOutline }) {
+					Add insurance
+				}
+			}
+			@dialog.Content(dialog.ContentProps{ Class: "max-w-md" }) {
+				@dialog.Header() {
+					@dialog.Title() { Add insurance }
+					@dialog.Description() { Add a new insurance record. Click "Add" when you're done. }
+					@InsurancesAddContent(errs)
+				}
+			}
+		}
+	</htmx-partial>
+}
+
+templ InsurancesAddContent(userForm Form) {
+	<htmx-partial hx-target="#insurances-add-content">
+		<form
+			hx-post="/insurances"
+			hx-push-url="true"
+			id="insurances-add-content"
+			class="flex gap-6 flex-col"
+		>
+			{{ transportIDField := userForm["transport_id"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "insurances-add-transport-id" }) { Transport ID }
+				if transportIDField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "insurances-add-transport-id",
+						Name:        "transport_id",
+						Type:        input.TypeNumber,
+						Value:       transportIDField.Value,
+						Placeholder: "Transport ID",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "insurances-add-transport-id",
+						Name:        "transport_id",
+						Type:        input.TypeNumber,
+						Value:       transportIDField.Value,
+						Placeholder: "Transport ID",
+						HasError:    true,
+					})
+					@form.Description() { Enter transport ID. }
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ transportIDField.Err.Error() }
+					}
+				}
+			}
+
+			{{ insuranceDateField := userForm["insurance_date"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "insurances-add-insurance-date" }) { Insurance Date }
+				if insuranceDateField.Err == nil {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "insurances-add-insurance-date",
+						Name:  "insurance_date",
+						Value: parseDate(insuranceDateField.Value),
+					})
+				} else {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:       "insurances-add-insurance-date",
+						Name:     "insurance_date",
+						Value:    parseDate(insuranceDateField.Value),
+						HasError: true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ insuranceDateField.Err.Error() }
+					}
+				}
+			}
+
+			{{ expirationDateField := userForm["insurance_expiration"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "insurances-add-expiration" }) { Expiration Date }
+				if expirationDateField.Err == nil {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:    "insurances-add-expiration",
+						Name:  "insurance_expiration",
+						Value: parseDate(expirationDateField.Value),
+					})
+				} else {
+					@datepicker.DatePicker(datepicker.Props{
+						ID:       "insurances-add-expiration",
+						Name:     "insurance_expiration",
+						Value:    parseDate(expirationDateField.Value),
+						HasError: true,
+					})
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ expirationDateField.Err.Error() }
+					}
+				}
+			}
+
+			{{ paymentField := userForm["payment"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "insurances-add-payment" }) { Payment ($) }
+				if paymentField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "insurances-add-payment",
+						Name:        "payment",
+						Type:        input.TypeText,
+						Value:       paymentField.Value,
+						Placeholder: "1000.00",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "insurances-add-payment",
+						Name:        "payment",
+						Type:        input.TypeText,
+						Value:       paymentField.Value,
+						Placeholder: "1000.00",
+						HasError:    true,
+					})
+					@form.Description() { Enter payment amount. }
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ paymentField.Err.Error() }
+					}
+				}
+			}
+
+			{{ coverageField := userForm["coverage"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{ For: "insurances-add-coverage" }) { Coverage ($) }
+				if coverageField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "insurances-add-coverage",
+						Name:        "coverage",
+						Type:        input.TypeText,
+						Value:       coverageField.Value,
+						Placeholder: "50000.00",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "insurances-add-coverage",
+						Name:        "coverage",
+						Type:        input.TypeText,
+						Value:       coverageField.Value,
+						Placeholder: "50000.00",
+						HasError:    true,
+					})
+					@form.Description() { Enter coverage amount. }
+					@form.Message(form.MessageProps{ Variant: form.MessageVariantError }) {
+						{ coverageField.Err.Error() }
+					}
+				}
+			}
+
+			@button.Button(button.Props{
+				Type:    button.TypeSubmit,
+				Variant: button.VariantDefault,
+			}) {
+				Add
+			}
+		</form>
+	</htmx-partial>
+}
+
+// ---------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------
+templ InsurancesPagination(page, totalPages int32, filter models.InsuranceFilter) {
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	{{ query := buildInsurancesQueryString(filter) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#insurances-table",
+						"hx-push-url": "true",
+						"hx-get":      buildInsurancesPageURL(query, p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#insurances-table",
+							"hx-push-url": "true",
+							"hx-get":      buildInsurancesPageURL(query, 1),
+						},
+					}) { 1 }
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+			}
+			for _, pg := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#insurances-table",
+							"hx-push-url": "true",
+							"hx-get":      buildInsurancesPageURL(query, pg),
+						},
+						IsActive: pg == p.CurrentPage,
+					}) { { fmt.Sprint(pg) } }
+				}
+			}
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() { @pagination.Ellipsis() }
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#insurances-table",
+							"hx-push-url": "true",
+							"hx-get":      buildInsurancesPageURL(query, p.TotalPages),
+						},
+					}) { { fmt.Sprint(p.TotalPages) } }
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#insurances-table",
+						"hx-push-url": "true",
+						"hx-get":      buildInsurancesPageURL(query, p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+func buildInsurancesQueryString(filter models.InsuranceFilter) string {
+	params := []string{}
+	if filter.TransportID.Set {
+		params = append(params, "transport_id="+strconv.Itoa(int(filter.TransportID.Value)))
+	}
+	if filter.InsuranceDateFrom.Set && !filter.InsuranceDateFrom.Value.IsZero() {
+		params = append(params, "insurance_from="+filter.InsuranceDateFrom.Value.Format("2006-01-02"))
+	}
+	if filter.InsuranceDateTo.Set && !filter.InsuranceDateTo.Value.IsZero() {
+		params = append(params, "insurance_to="+filter.InsuranceDateTo.Value.Format("2006-01-02"))
+	}
+	if filter.InsuranceExpirationFrom.Set && !filter.InsuranceExpirationFrom.Value.IsZero() {
+		params = append(params, "expiration_from="+filter.InsuranceExpirationFrom.Value.Format("2006-01-02"))
+	}
+	if filter.InsuranceExpirationTo.Set && !filter.InsuranceExpirationTo.Value.IsZero() {
+		params = append(params, "expiration_to="+filter.InsuranceExpirationTo.Value.Format("2006-01-02"))
+	}
+	if filter.PaymentMin.Set {
+		params = append(params, "payment_min="+filter.PaymentMin.Value.String())
+	}
+	if filter.PaymentMax.Set {
+		params = append(params, "payment_max="+filter.PaymentMax.Value.String())
+	}
+	if filter.CoverageMin.Set {
+		params = append(params, "coverage_min="+filter.CoverageMin.Value.String())
+	}
+	if filter.CoverageMax.Set {
+		params = append(params, "coverage_max="+filter.CoverageMax.Value.String())
+	}
+	if filter.SortBy.Set {
+		params = append(params, "sort="+filter.SortBy.Value)
+	}
+	if filter.SortOrder.Set {
+		params = append(params, "order="+filter.SortOrder.Value)
+	}
+	return strings.Join(params, "&")
+}
+
+func buildInsurancesPageURL(baseQuery string, page int) string {
+	if baseQuery == "" {
+		return fmt.Sprintf("/insurances?page=%d", page)
+	}
+	return fmt.Sprintf("/insurances?%s&page=%d", baseQuery, page)
+}

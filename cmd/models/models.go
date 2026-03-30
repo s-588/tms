@@ -68,34 +68,38 @@ type Employee struct {
 }
 
 type Transport struct {
-	TransportID      int32
-	Model            string
-	LicensePlate     string
-	PayloadCapacity  int32
-	FuelConsumption  int32
-	InspectionPassed bool
-	InspectionDate   time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	DeletedAt        time.Time
+	TransportID     int32
+	Model           string
+	LicensePlate    string
+	PayloadCapacity int32
+	FuelConsumption int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	DeletedAt       time.Time
 }
 
 type Order struct {
-	OrderID     int32
-	ClientID    int32
-	TransportID int32
-	EmployeeID  int32
-	PriceID     int32
-	Grade       uint8
-	Distance    int32
-	Weight      int32
-	TotalPrice  decimal.Decimal
-	Status      OrderStatus
-	NodeIDStart *int32
-	NodeIDEnd   *int32
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   time.Time
+	OrderID               int32
+	ClientID              int32
+	TransportID           int32
+	EmployeeID            int32
+	PriceID               int32
+	Grade                 uint8
+	Distance              float64
+	Weight                int32
+	TotalPrice            decimal.Decimal
+	Status                OrderStatus
+	NodeIDStart           int32
+	NodeIDEnd             int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DeletedAt             time.Time
+	ClientName            string
+	EmployeeName          string
+	TransportLicensePlate string
+	PriceCargoType        string
+	NodeStartName         string
+	NodeEndName           string
 }
 
 type Price struct {
@@ -108,34 +112,36 @@ type Price struct {
 	DeletedAt time.Time
 }
 
-// New models for additional tables (if needed)
 type Insurance struct {
-	InsuranceID         int32
-	TransportID         int32
-	InsuranceDate       time.Time
-	InsuranceExpiration time.Time
-	Payment             decimal.Decimal
-	Coverage            decimal.Decimal
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
-	DeletedAt           time.Time
+	InsuranceID           int32
+	TransportID           int32
+	InsuranceDate         time.Time
+	InsuranceExpiration   time.Time
+	Payment               decimal.Decimal
+	Coverage              decimal.Decimal
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DeletedAt             time.Time
+	TransportLicensePlate string
 }
 
 type Inspection struct {
-	InspectionID         int32
-	TransportID          int32
-	InspectionDate       time.Time
-	InspectionExpiration time.Time
-	Status               InspectionStatus
-	CreatedAt            time.Time
-	UpdatedAt            time.Time
-	DeletedAt            time.Time
+	InspectionID          int32
+	TransportID           int32
+	InspectionDate        time.Time
+	InspectionExpiration  time.Time
+	Status                InspectionStatus
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	DeletedAt             time.Time
+	TransportLicensePlate string
 }
 
 type Node struct {
 	NodeID    int32
 	Name      string
 	Geom      Point
+	Address string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt time.Time

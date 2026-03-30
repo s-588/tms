@@ -19,14 +19,14 @@ func NewHandler(db db.DB) Handler {
 	}
 }
 
-func parseIDFromReq(r *http.Request) (int, error) {
+func parseIDFromReq(r *http.Request) (int32, error) {
 	idStr := r.PathValue("id")
 	if idStr != "" {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr,10,32)
 		if err != nil {
 			return 0, fmt.Errorf("can't parse ID from path: %w", err)
 		}
-		return id, nil
+		return int32(id), nil
 	}
 	return 0, fmt.Errorf("no id value in path")
 }

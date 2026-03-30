@@ -31,24 +31,27 @@ func (q *Queries) BulkSoftDeleteNodes(ctx context.Context, ids []int32) error {
 
 const createNode = `-- name: CreateNode :one
 INSERT INTO nodes (
-    name, geom
+    address, name, geom
 ) VALUES (
     $1::text,
-    $2::point
+    $2::text,
+    $3::geography
 )
-RETURNING node_id, name, geom, created_at, updated_at, deleted_at
+RETURNING node_id, address, name, geom, created_at, updated_at, deleted_at
 `
 
 type CreateNodeParams struct {
-	Name *string
-	Geom pgtype.Point
+	Address string
+	Name    *string
+	Geom    []byte
 }
 
 func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, error) {
-	row := q.db.QueryRow(ctx, createNode, arg.Name, arg.Geom)
+	row := q.db.QueryRow(ctx, createNode, arg.Address, arg.Name, arg.Geom)
 	var i Node
 	err := row.Scan(
 		&i.NodeID,
+		&i.Address,
 		&i.Name,
 		&i.Geom,
 		&i.CreatedAt,
@@ -58,18 +61,54 @@ func (q *Queries) CreateNode(ctx context.Context, arg CreateNodeParams) (Node, e
 	return i, err
 }
 
+const getDistanceBetweenNodes = `-- name: GetDistanceBetweenNodes :one
+SELECT ST_Distance(n1.geom, n2.geom)::float
+		FROM nodes n1, nodes n2
+		WHERE n1.node_id = $1 AND n2.node_id = $2
+`
+
+type GetDistanceBetweenNodesParams struct {
+	NodeID   int32
+	NodeID_2 int32
+}
+
+func (q *Queries) GetDistanceBetweenNodes(ctx context.Context, arg GetDistanceBetweenNodesParams) (float64, error) {
+	row := q.db.QueryRow(ctx, getDistanceBetweenNodes, arg.NodeID, arg.NodeID_2)
+	var column_1 float64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const getNode = `-- name: GetNode :one
-SELECT node_id, name, geom, created_at, updated_at, deleted_at FROM nodes
+SELECT  node_id,
+    name,
+ ST_X(geom::geometry) AS x,
+    ST_Y(geom::geometry) AS y,
+    created_at,
+    updated_at,
+    deleted_at
+FROM nodes
 WHERE node_id = $1 AND deleted_at IS NULL
 `
 
-func (q *Queries) GetNode(ctx context.Context, nodeID int32) (Node, error) {
+type GetNodeRow struct {
+	NodeID    int32
+	Name      *string
+	X         interface{}
+	Y         interface{}
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+	DeletedAt pgtype.Timestamptz
+}
+
+func (q *Queries) GetNode(ctx context.Context, nodeID int32) (GetNodeRow, error) {
 	row := q.db.QueryRow(ctx, getNode, nodeID)
-	var i Node
+	var i GetNodeRow
 	err := row.Scan(
 		&i.NodeID,
 		&i.Name,
-		&i.Geom,
+		&i.X,
+		&i.Y,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
@@ -78,68 +117,61 @@ func (q *Queries) GetNode(ctx context.Context, nodeID int32) (Node, error) {
 }
 
 const getNodes = `-- name: GetNodes :many
-SELECT node_id, name, geom, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+SELECT  node_id,
+ name,
+    ST_X(geom::geometry)::double precision AS x,
+    ST_Y(geom::geometry)::double precision AS y,
+    created_at,
+    updated_at,
+    deleted_at,
+    (count(*) OVER())/20+1 AS total_count
 FROM nodes
 WHERE deleted_at IS NULL
   AND ($1::text IS NULL OR name ILIKE '%' || $1::text || '%')
-  AND ($2::timestamptz IS NULL OR created_at >= $2::timestamptz)
-  AND ($3::timestamptz IS NULL OR created_at <= $3::timestamptz)
-  AND ($4::timestamptz IS NULL OR updated_at >= $4::timestamptz)
-  AND ($5::timestamptz IS NULL OR updated_at <= $5::timestamptz)
 ORDER BY
-    CASE WHEN $6::text = 'ASC' THEN
-        CASE $7::text
+    CASE WHEN $2::text = 'ASC' THEN
+        CASE $3::text
             WHEN 'node_id' THEN node_id::text
             WHEN 'name' THEN name
             WHEN 'created_at' THEN created_at::text
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $6::text = 'DESC' THEN
-        CASE $7::text
+    CASE WHEN $2::text = 'DESC' THEN
+        CASE $3::text
             WHEN 'node_id' THEN node_id::text
             WHEN 'name' THEN name
             WHEN 'created_at' THEN created_at::text
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $9 OFFSET $8
+LIMIT 20 OFFSET 20 * ($4::integer - 1)
 `
 
 type GetNodesParams struct {
-	NameFilter  *string
-	CreatedFrom pgtype.Timestamptz
-	CreatedTo   pgtype.Timestamptz
-	UpdatedFrom pgtype.Timestamptz
-	UpdatedTo   pgtype.Timestamptz
-	SortOrder   *string
-	SortBy      *string
-	Offset      int32
-	Limit       int32
+	NameFilter *string
+	SortOrder  string
+	SortBy     string
+	Page       int32
 }
 
 type GetNodesRow struct {
 	NodeID     int32
 	Name       *string
-	Geom       pgtype.Point
+	X          float64
+	Y          float64
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
 	DeletedAt  pgtype.Timestamptz
-	TotalCount int64
+	TotalCount int32
 }
 
 func (q *Queries) GetNodes(ctx context.Context, arg GetNodesParams) ([]GetNodesRow, error) {
 	rows, err := q.db.Query(ctx, getNodes,
 		arg.NameFilter,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -151,7 +183,8 @@ func (q *Queries) GetNodes(ctx context.Context, arg GetNodesParams) ([]GetNodesR
 		if err := rows.Scan(
 			&i.NodeID,
 			&i.Name,
-			&i.Geom,
+			&i.X,
+			&i.Y,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -197,19 +230,26 @@ func (q *Queries) SoftDeleteNode(ctx context.Context, nodeID int32) error {
 const updateNode = `-- name: UpdateNode :exec
 UPDATE nodes
 SET
-    name = COALESCE($1::text, name),
-    geom = COALESCE($2::point, geom),
+    address = $1::text,
+    name = $2::text,
+    geom = $3::geography,
     updated_at = NOW()
-WHERE node_id = $3
+WHERE node_id = $4
 `
 
 type UpdateNodeParams struct {
-	Name   *string
-	Geom   pgtype.Point
-	NodeID int32
+	Address string
+	Name    *string
+	Geom    []byte
+	NodeID  int32
 }
 
 func (q *Queries) UpdateNode(ctx context.Context, arg UpdateNodeParams) error {
-	_, err := q.db.Exec(ctx, updateNode, arg.Name, arg.Geom, arg.NodeID)
+	_, err := q.db.Exec(ctx, updateNode,
+		arg.Address,
+		arg.Name,
+		arg.Geom,
+		arg.NodeID,
+	)
 	return err
 }

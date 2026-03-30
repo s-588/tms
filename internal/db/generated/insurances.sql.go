@@ -122,7 +122,7 @@ func (q *Queries) GetInsuranceByTransport(ctx context.Context, transportID int32
 
 const getInsurances = `-- name: GetInsurances :many
 SELECT insurance_id, transport_id, insurance_date, insurance_expiration, payment, coverage, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM insurances
 WHERE deleted_at IS NULL
   AND ($1::int IS NULL OR transport_id = $1::int)
@@ -134,13 +134,9 @@ WHERE deleted_at IS NULL
   AND ($7::numeric IS NULL OR payment <= $7::numeric)
   AND ($8::numeric IS NULL OR coverage >= $8::numeric)
   AND ($9::numeric IS NULL OR coverage <= $9::numeric)
-  AND ($10::timestamptz IS NULL OR created_at >= $10::timestamptz)
-  AND ($11::timestamptz IS NULL OR created_at <= $11::timestamptz)
-  AND ($12::timestamptz IS NULL OR updated_at >= $12::timestamptz)
-  AND ($13::timestamptz IS NULL OR updated_at <= $13::timestamptz)
 ORDER BY
-    CASE WHEN $14::text = 'ASC' THEN
-        CASE $15::text
+    CASE WHEN $10::text = 'ASC' THEN
+        CASE $11::text
             WHEN 'insurance_id' THEN insurance_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'insurance_date' THEN insurance_date::text
@@ -151,8 +147,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $14::text = 'DESC' THEN
-        CASE $15::text
+    CASE WHEN $10::text = 'DESC' THEN
+        CASE $11::text
             WHEN 'insurance_id' THEN insurance_id::text
             WHEN 'transport_id' THEN transport_id::text
             WHEN 'insurance_date' THEN insurance_date::text
@@ -163,7 +159,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $17 OFFSET $16
+LIMIT 20 OFFSET 20 * ($12::integer - 1)
 `
 
 type GetInsurancesParams struct {
@@ -176,14 +172,9 @@ type GetInsurancesParams struct {
 	PaymentMax              pgtype.Numeric
 	CoverageMin             pgtype.Numeric
 	CoverageMax             pgtype.Numeric
-	CreatedFrom             pgtype.Timestamptz
-	CreatedTo               pgtype.Timestamptz
-	UpdatedFrom             pgtype.Timestamptz
-	UpdatedTo               pgtype.Timestamptz
-	SortOrder               *string
-	SortBy                  *string
-	Offset                  int32
-	Limit                   int32
+	SortOrder               string
+	SortBy                  string
+	Page                    int32
 }
 
 type GetInsurancesRow struct {
@@ -196,7 +187,7 @@ type GetInsurancesRow struct {
 	CreatedAt           pgtype.Timestamptz
 	UpdatedAt           pgtype.Timestamptz
 	DeletedAt           pgtype.Timestamptz
-	TotalCount          int64
+	TotalCount          int32
 }
 
 func (q *Queries) GetInsurances(ctx context.Context, arg GetInsurancesParams) ([]GetInsurancesRow, error) {
@@ -210,14 +201,9 @@ func (q *Queries) GetInsurances(ctx context.Context, arg GetInsurancesParams) ([
 		arg.PaymentMax,
 		arg.CoverageMin,
 		arg.CoverageMax,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -278,21 +264,21 @@ func (q *Queries) SoftDeleteInsurance(ctx context.Context, insuranceID int32) er
 const updateInsurance = `-- name: UpdateInsurance :exec
 UPDATE insurances
 SET
-    transport_id = COALESCE($1::int, transport_id),
-    insurance_date = COALESCE($2::date, insurance_date),
-    insurance_expiration = COALESCE($3::date, insurance_expiration),
-    payment = COALESCE($4::numeric, payment),
-    coverage = COALESCE($5::numeric, coverage),
+    transport_id = $1::int,
+    insurance_date = $2::date,
+    insurance_expiration = $3::date,
+    payment = $4::numeric,
+    coverage = $5::numeric,
     updated_at = NOW()
 WHERE insurance_id = $6
 `
 
 type UpdateInsuranceParams struct {
-	TransportID         *int32
+	TransportID         int32
 	InsuranceDate       pgtype.Date
 	InsuranceExpiration pgtype.Date
-	Payment             pgtype.Numeric
-	Coverage            pgtype.Numeric
+	Payment             decimal.Decimal
+	Coverage            decimal.Decimal
 	InsuranceID         int32
 }
 

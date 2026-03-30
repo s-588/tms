@@ -1,0 +1,712 @@
+package ui
+
+import (
+	"fmt"
+	"github.com/s-588/tms/cmd/models"
+	"github.com/s-588/tms/internal/ui/components/button"
+	"github.com/s-588/tms/internal/ui/components/dialog"
+	"github.com/s-588/tms/internal/ui/components/form"
+	"github.com/s-588/tms/internal/ui/components/input"
+	"github.com/s-588/tms/internal/ui/components/pagination"
+	"github.com/s-588/tms/internal/ui/components/selectbox"
+	"github.com/s-588/tms/internal/ui/components/sheet"
+	"github.com/s-588/tms/internal/ui/components/table"
+	"strconv"
+	"strings"
+)
+
+// ---------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------
+templ PricesPage(prices []models.Price, page, totalPages int32, filter models.PriceFilter) {
+	@PricesViewSheet(models.Price{}, false)
+	<div class="bg-white rounded-2xl shadow p-6 space-y-6">
+		<div class="flex items-left gap-2">
+			@PricesFilter(filter)
+			@pricesOperationsBar(Form{})
+		</div>
+		@PricesTable(prices, page, totalPages, filter, false)
+	</div>
+}
+
+// ---------------------------------------------------------------------
+// View / Edit Sheet
+// ---------------------------------------------------------------------
+templ PricesViewSheet(price models.Price, open bool) {
+	@sheet.Content(sheet.ContentProps{
+		ID:   "prices-sheet",
+		Side: sheet.SideRight,
+		Open: open,
+	}) {
+		@PricesViewSheetContent(price, Form{})
+	}
+}
+
+templ PricesViewSheetContent(price models.Price, formData Form) {
+	<div id="prices-sheet-content">
+		@sheet.Header() {
+			@sheet.Title() {
+				{ price.CargoType }
+			}
+			@sheet.Description() {
+				{ "Price ID: " + strconv.Itoa(int(price.PriceID)) }
+			}
+		}
+		<form
+			id="price-edit-form"
+			class="space-y-6"
+			hx-put={ "/prices/" + strconv.Itoa(int(price.PriceID)) }
+			hx-target="#prices-sheet-content"
+		>
+			<div class="flex-1 p-4 space-y-6">
+				<!-- Price Configuration -->
+				<div class="space-y-2">
+					<h3 class="font-semibold text-lg">Price Configuration</h3>
+					{{ cargoField := formData["cargo_type"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "price-edit-cargo"}) {
+							Cargo Type 
+						}
+						if cargoField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "price-edit-cargo",
+								Name:        "cargo_type",
+								Type:        input.TypeText,
+								Value:       price.CargoType,
+								Placeholder: "e.g., Electronics",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "price-edit-cargo",
+								Name:        "cargo_type",
+								Type:        input.TypeText,
+								Value:       cargoField.Value,
+								Placeholder: "e.g., Electronics",
+								HasError:    true,
+							})
+							@form.Description() {
+								Enter cargo type. 
+							}
+							@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+								{ cargoField.Err.Error() }
+							}
+						}
+					}
+					{{ weightField := formData["weight"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "price-edit-weight"}) {
+							Weight Coefficient 
+						}
+						if weightField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "price-edit-weight",
+								Name:        "weight",
+								Type:        input.TypeText,
+								Value:       price.Weight.String(),
+								Placeholder: "1.0",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "price-edit-weight",
+								Name:        "weight",
+								Type:        input.TypeText,
+								Value:       weightField.Value,
+								Placeholder: "1.0",
+								HasError:    true,
+							})
+							@form.Description() {
+								Enter weight coefficient (positive decimal). 
+							}
+							@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+								{ weightField.Err.Error() }
+							}
+						}
+					}
+					{{ distanceField := formData["distance"] }}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "price-edit-distance"}) {
+							Distance Coefficient 
+						}
+						if distanceField.Err == nil {
+							@input.Input(input.Props{
+								ID:          "price-edit-distance",
+								Name:        "distance",
+								Type:        input.TypeText,
+								Value:       price.Distance.String(),
+								Placeholder: "1.0",
+							})
+						} else {
+							@input.Input(input.Props{
+								ID:          "price-edit-distance",
+								Name:        "distance",
+								Type:        input.TypeText,
+								Value:       distanceField.Value,
+								Placeholder: "1.0",
+								HasError:    true,
+							})
+							@form.Description() {
+								Enter distance coefficient (positive decimal). 
+							}
+							@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+								{ distanceField.Err.Error() }
+							}
+						}
+					}
+				</div>
+				<!-- Timestamps (read‑only) -->
+				<div class="space-y-2 pt-4 border-t text-xs text-muted-foreground">
+					<div>Created: { price.CreatedAt.Format("Jan 2, 2006 15:04") }</div>
+					<div>Last updated: { price.UpdatedAt.Format("Jan 2, 2006 15:04") }</div>
+					if !price.DeletedAt.IsZero() {
+						<div class="text-destructive">Deleted: { price.DeletedAt.Format("Jan 2, 2006 15:04") }</div>
+					}
+				</div>
+			</div>
+		</form>
+		@sheet.Footer() {
+			<div class="flex justify-between gap-2">
+				@button.Button(button.Props{
+					Variant: button.VariantDestructive,
+					Attributes: templ.Attributes{
+						"hx-delete":  "/prices/" + strconv.FormatInt(int64(price.PriceID), 10),
+						"hx-target":  "#prices-table",
+						"hx-confirm": "Are you sure you want to delete this price configuration?",
+					},
+				}) {
+					Delete
+				}
+				<div class="flex gap-2">
+					@button.Button(button.Props{
+						Type:    button.TypeReset,
+						Variant: button.VariantGhost,
+						Attributes: templ.Attributes{
+							"form": "price-edit-form",
+						},
+					}) {
+						Reset
+					}
+					@button.Button(button.Props{
+						Type:    button.TypeSubmit,
+						Variant: button.VariantDefault,
+						Attributes: templ.Attributes{
+							"form": "price-edit-form",
+						},
+					}) {
+						Save Changes
+					}
+					@sheet.Close(sheet.CloseProps{For: "prices-sheet"}) {
+						@button.Button(button.Props{Variant: button.VariantOutline}) {
+							Close
+						}
+					}
+				</div>
+			</div>
+		}
+	</div>
+}
+
+templ viewPriceSheetButton(priceID int32) {
+	@sheet.Trigger(sheet.TriggerProps{For: "prices-sheet"}) {
+		@button.Button(button.Props{
+			Variant: button.VariantOutline,
+			Attributes: templ.Attributes{
+				"hx-get":    fmt.Sprintf("/prices/%d", priceID),
+				"hx-target": "#prices-sheet-content",
+			},
+		}) {
+			View
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Table
+// ---------------------------------------------------------------------
+templ PricesTable(prices []models.Price, page, totalPages int32, filter models.PriceFilter, swap bool) {
+	if swap {
+		<div class="overflow-x-auto" id="prices-table" hx-swap-oob="true">
+			@tableReal(prices, page, totalPages, filter)
+		</div>
+	} else {
+		<div class="overflow-x-auto" id="prices-table">
+			@tableReal(prices, page, totalPages, filter)
+		</div>
+	}
+}
+
+templ tableReal(prices []models.Price, page, totalPages int32, filter models.PriceFilter) {
+	@table.Table(table.Props{}) {
+		@table.Header() {
+			@table.Row() {
+				@table.Head() {
+					ID 
+				}
+				@table.Head() {
+					Cargo Type 
+				}
+				@table.Head() {
+					Weight Coef 
+				}
+				@table.Head() {
+					Distance Coef 
+				}
+				@table.Head() {
+					Created 
+				}
+				@table.Head() {
+					Operations 
+				}
+			}
+		}
+		@table.Body() {
+			if len(prices) == 0 {
+				@table.Row() {
+					@table.Cell(table.CellProps{Attributes: templ.Attributes{"colspan": "6"}}) {
+						No price configurations found
+					}
+				}
+			} else {
+				for _, price := range prices {
+					@PriceRow(price)
+				}
+			}
+		}
+	}
+	@PricesPagination(page, totalPages, filter)
+}
+
+templ PriceRow(price models.Price) {
+	@table.Row() {
+		@table.Cell() {
+			{ price.PriceID }
+		}
+		@table.Cell() {
+			{ price.CargoType }
+		}
+		@table.Cell() {
+			{ price.Weight.String() }
+		}
+		@table.Cell() {
+			{ price.Distance.String() }
+		}
+		@table.Cell() {
+			{ price.CreatedAt.Format("2006-01-02") }
+		}
+		@table.Cell() {
+			@viewPriceSheetButton(price.PriceID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Filter Dialog
+// ---------------------------------------------------------------------
+templ PricesFilter(filter models.PriceFilter) {
+	@dialog.Dialog(dialog.Props{ID: "prices-filter-dialog"}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{Variant: button.VariantOutline}) {
+				Filter
+			}
+		}
+		@dialog.Content(dialog.ContentProps{Class: "max-w-xl"}) {
+			<form
+				class="space-y-6"
+				hx-get="/prices"
+				hx-push-url="true"
+				hx-target="#prices-table"
+			>
+				@dialog.Header() {
+					@dialog.Title() {
+						Filter prices 
+					}
+				}
+				<div class="grid grid-cols-2 gap-4">
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-cargo"}) {
+							Cargo Type 
+						}
+						@input.Input(input.Props{
+							ID:   "filter-cargo",
+							Name: "cargo_type",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.CargoType.Set {
+									return filter.CargoType.Value
+								} else {
+									return ""
+								}
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-weight-min"}) {
+							Weight Min 
+						}
+						@input.Input(input.Props{
+							ID:   "filter-weight-min",
+							Name: "weight_min",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.WeightMin.Set {
+									return strconv.Itoa(int(filter.WeightMin.Value))
+								} else {
+									return ""
+								}
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-weight-max"}) {
+							Weight Max 
+						}
+						@input.Input(input.Props{
+							ID:   "filter-weight-max",
+							Name: "weight_max",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.WeightMax.Set {
+									return strconv.Itoa(int(filter.WeightMax.Value))
+								} else {
+									return ""
+								}
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-distance-min"}) {
+							Distance Min 
+						}
+						@input.Input(input.Props{
+							ID:   "filter-distance-min",
+							Name: "distance_min",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.DistanceMin.Set {
+									return strconv.Itoa(int(filter.DistanceMin.Value))
+								} else {
+									return ""
+								}
+							}(),
+						})
+					}
+					@form.Item() {
+						@form.Label(form.LabelProps{For: "filter-distance-max"}) {
+							Distance Max 
+						}
+						@input.Input(input.Props{
+							ID:   "filter-distance-max",
+							Name: "distance_max",
+							Type: input.TypeText,
+							Value: func() string {
+								if filter.DistanceMax.Set {
+									return strconv.Itoa(int(filter.DistanceMax.Value))
+								} else {
+									return ""
+								}
+							}(),
+						})
+					}
+				</div>
+				@form.Item() {
+					@form.Label(form.LabelProps{For: "filter-sort-by"}) {
+						Sort by 
+					}
+					@selectbox.SelectBox(selectbox.Props{
+						ID: "filter-sort-by",
+					}) {
+						@selectbox.Trigger(selectbox.TriggerProps{
+							Name: "sort",
+						}) {
+							@selectbox.Value(selectbox.ValueProps{
+								Placeholder: "Select column",
+							})
+						}
+						@selectbox.Content() {
+							@selectbox.Group() {
+								@selectbox.Item(selectbox.ItemProps{Value: "price_id"}) {
+									ID 
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "cargo_type"}) {
+									Cargo Type 
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "weight"}) {
+									Weight Coef 
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "distance"}) {
+									Distance Coef 
+								}
+								@selectbox.Item(selectbox.ItemProps{Value: "created_at"}) {
+									Created at 
+								}
+							}
+						}
+					}
+				}
+				@dialog.Footer() {
+					<div class="flex justify-end gap-2">
+						@button.Button(button.Props{
+							Type:    button.TypeSubmit,
+							Variant: button.VariantDefault,
+						}) {
+							Apply
+						}
+					</div>
+				}
+			</form>
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Operations Bar (Add button)
+// ---------------------------------------------------------------------
+templ pricesOperationsBar(addErrs Form) {
+	@PricesAddDialog(addErrs)
+}
+
+// ---------------------------------------------------------------------
+// Add Dialog
+// ---------------------------------------------------------------------
+templ PricesAddDialog(errs Form) {
+	<htmx-partial hx-target="#prices-add-dialog">
+		@dialog.Dialog(dialog.Props{ID: "prices-add-dialog"}) {
+			@dialog.Trigger() {
+				@button.Button(button.Props{Variant: button.VariantOutline}) {
+					Add price
+				}
+			}
+			@dialog.Content(dialog.ContentProps{Class: "max-w-md"}) {
+				@dialog.Header() {
+					@dialog.Title() {
+						Add price configuration 
+					}
+					@dialog.Description() {
+						Add a new price configuration. Click "Add" when you're done. 
+					}
+					@PricesAddContent(errs)
+				}
+			}
+		}
+	</htmx-partial>
+}
+
+templ PricesAddContent(userForm Form) {
+	<htmx-partial hx-target="#prices-add-content">
+		<form
+			hx-post="/prices"
+			hx-push-url="true"
+			id="prices-add-content"
+			class="flex gap-6 flex-col"
+		>
+			{{ cargoField := userForm["cargo_type"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{For: "prices-add-cargo"}) {
+					Cargo Type 
+				}
+				if cargoField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "prices-add-cargo",
+						Name:        "cargo_type",
+						Type:        input.TypeText,
+						Value:       cargoField.Value,
+						Placeholder: "e.g., Electronics",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "prices-add-cargo",
+						Name:        "cargo_type",
+						Type:        input.TypeText,
+						Value:       cargoField.Value,
+						Placeholder: "e.g., Electronics",
+						HasError:    true,
+					})
+					@form.Description() {
+						Enter cargo type. 
+					}
+					@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+						{ cargoField.Err.Error() }
+					}
+				}
+			}
+			{{ weightField := userForm["weight"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{For: "prices-add-weight"}) {
+					Weight Coefficient 
+				}
+				if weightField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "prices-add-weight",
+						Name:        "weight",
+						Type:        input.TypeText,
+						Value:       weightField.Value,
+						Placeholder: "1.0",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "prices-add-weight",
+						Name:        "weight",
+						Type:        input.TypeText,
+						Value:       weightField.Value,
+						Placeholder: "1.0",
+						HasError:    true,
+					})
+					@form.Description() {
+						Enter weight coefficient (positive decimal). 
+					}
+					@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+						{ weightField.Err.Error() }
+					}
+				}
+			}
+			{{ distanceField := userForm["distance"] }}
+			@form.Item() {
+				@form.Label(form.LabelProps{For: "prices-add-distance"}) {
+					Distance Coefficient 
+				}
+				if distanceField.Err == nil {
+					@input.Input(input.Props{
+						ID:          "prices-add-distance",
+						Name:        "distance",
+						Type:        input.TypeText,
+						Value:       distanceField.Value,
+						Placeholder: "1.0",
+					})
+				} else {
+					@input.Input(input.Props{
+						ID:          "prices-add-distance",
+						Name:        "distance",
+						Type:        input.TypeText,
+						Value:       distanceField.Value,
+						Placeholder: "1.0",
+						HasError:    true,
+					})
+					@form.Description() {
+						Enter distance coefficient (positive decimal). 
+					}
+					@form.Message(form.MessageProps{Variant: form.MessageVariantError}) {
+						{ distanceField.Err.Error() }
+					}
+				}
+			}
+			@button.Button(button.Props{
+				Type:    button.TypeSubmit,
+				Variant: button.VariantDefault,
+			}) {
+				Add
+			}
+		</form>
+	</htmx-partial>
+}
+
+// ---------------------------------------------------------------------
+// Pagination
+// ---------------------------------------------------------------------
+templ PricesPagination(page, totalPages int32, filter models.PriceFilter) {
+	{{ p := pagination.CreatePagination(int(page), int(totalPages), 4) }}
+	{{ query := buildPricesQueryString(filter) }}
+	@pagination.Pagination() {
+		@pagination.Content() {
+			@pagination.Item() {
+				@pagination.Previous(pagination.PreviousProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#prices-table",
+						"hx-push-url": "true",
+						"hx-get":      buildPageURL(query, p.CurrentPage-1),
+					},
+					Disabled: !p.HasPrevious,
+					Label:    "Previous",
+				})
+			}
+			if p.Pages[0] > 1 {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#prices-table",
+							"hx-push-url": "true",
+							"hx-get":      buildPageURL(query, 1),
+						},
+					}) {
+						1 
+					}
+				}
+				if p.Pages[0] > 2 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+			}
+			for _, pg := range p.Pages {
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#prices-table",
+							"hx-push-url": "true",
+							"hx-get":      buildPageURL(query, pg),
+						},
+						IsActive: pg == p.CurrentPage,
+					}) {
+						{ fmt.Sprint(pg) }
+					}
+				}
+			}
+			if p.Pages[len(p.Pages)-1] < p.TotalPages {
+				if p.Pages[len(p.Pages)-1] < p.TotalPages-1 {
+					@pagination.Item() {
+						@pagination.Ellipsis()
+					}
+				}
+				@pagination.Item() {
+					@pagination.Link(pagination.LinkProps{
+						Attributes: templ.Attributes{
+							"hx-target":   "#prices-table",
+							"hx-push-url": "true",
+							"hx-get":      buildPageURL(query, p.TotalPages),
+						},
+					}) {
+						{ fmt.Sprint(p.TotalPages) }
+					}
+				}
+			}
+			@pagination.Item() {
+				@pagination.Next(pagination.NextProps{
+					Attributes: templ.Attributes{
+						"hx-target":   "#prices-table",
+						"hx-push-url": "true",
+						"hx-get":      buildPageURL(query, p.CurrentPage+1),
+					},
+					Disabled: !p.HasNext,
+					Label:    "Next",
+				})
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------
+func buildPricesQueryString(filter models.PriceFilter) string {
+	params := []string{}
+	if filter.CargoType.Set && filter.CargoType.Value != "" {
+		params = append(params, "cargo_type="+filter.CargoType.Value)
+	}
+	if filter.WeightMin.Set {
+		params = append(params, "weight_min="+strconv.Itoa(int(filter.WeightMin.Value)))
+	}
+	if filter.WeightMax.Set {
+		params = append(params, "weight_max="+strconv.Itoa(int(filter.WeightMax.Value)))
+	}
+	if filter.DistanceMin.Set {
+		params = append(params, "distance_min="+strconv.Itoa(int(filter.DistanceMin.Value)))
+	}
+	if filter.DistanceMax.Set {
+		params = append(params, "distance_max="+strconv.Itoa(int(filter.DistanceMax.Value)))
+	}
+	if filter.SortBy.Set {
+		params = append(params, "sort="+filter.SortBy.Value)
+	}
+	if filter.SortOrder.Set {
+		params = append(params, "order="+filter.SortOrder.Value)
+	}
+	return strings.Join(params, "&")
+}

@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
 )
 
 const bulkHardDeletePrices = `-- name: BulkHardDeletePrices :exec
@@ -33,16 +34,16 @@ const createPrice = `-- name: CreatePrice :one
 INSERT INTO prices (cargo_type, weight, distance)
 VALUES (
     $1::text,
-    $2::int,
-    $3::int
+    $2::decimal(10,2),
+    $3::decimal(10,2)
 )
 RETURNING price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at
 `
 
 type CreatePriceParams struct {
 	CargoType string
-	Weight    int32
-	Distance  int32
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
 }
 
 func (q *Queries) CreatePrice(ctx context.Context, arg CreatePriceParams) (Price, error) {
@@ -83,15 +84,15 @@ func (q *Queries) GetPrice(ctx context.Context, priceID int32) (Price, error) {
 const getPriceByUnique = `-- name: GetPriceByUnique :one
 SELECT price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at FROM prices
 WHERE cargo_type = $1::text
-  AND weight = $2::int
-  AND distance = $3::int
+  AND weight = $2::decimal(10,2)
+  AND distance = $3::decimal(10,2)
   AND deleted_at IS NULL
 `
 
 type GetPriceByUniqueParams struct {
 	CargoType string
-	Weight    int32
-	Distance  int32
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
 }
 
 func (q *Queries) GetPriceByUnique(ctx context.Context, arg GetPriceByUniqueParams) (Price, error) {
@@ -111,7 +112,7 @@ func (q *Queries) GetPriceByUnique(ctx context.Context, arg GetPriceByUniquePara
 
 const getPrices = `-- name: GetPrices :many
 SELECT price_id, cargo_type, weight, distance, created_at, updated_at, deleted_at,
-       count(*) OVER() AS total_count
+       (count(*) OVER())/20+1 AS total_count
 FROM prices
 WHERE deleted_at IS NULL
   AND ($1::text IS NULL OR cargo_type ILIKE '%' || $1::text || '%')
@@ -119,13 +120,9 @@ WHERE deleted_at IS NULL
   AND ($3::int IS NULL OR weight <= $3::int)
   AND ($4::int IS NULL OR distance >= $4::int)
   AND ($5::int IS NULL OR distance <= $5::int)
-  AND ($6::timestamptz IS NULL OR created_at >= $6::timestamptz)
-  AND ($7::timestamptz IS NULL OR created_at <= $7::timestamptz)
-  AND ($8::timestamptz IS NULL OR updated_at >= $8::timestamptz)
-  AND ($9::timestamptz IS NULL OR updated_at <= $9::timestamptz)
 ORDER BY
-    CASE WHEN $10::text = 'ASC' THEN
-        CASE $11::text
+    CASE WHEN $6::text = 'ASC' THEN
+        CASE $7::text
             WHEN 'price_id' THEN price_id::text
             WHEN 'cargo_type' THEN cargo_type
             WHEN 'weight' THEN weight::text
@@ -134,8 +131,8 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END ASC,
-    CASE WHEN $10::text = 'DESC' THEN
-        CASE $11::text
+    CASE WHEN $6::text = 'DESC' THEN
+        CASE $7::text
             WHEN 'price_id' THEN price_id::text
             WHEN 'cargo_type' THEN cargo_type
             WHEN 'weight' THEN weight::text
@@ -144,7 +141,7 @@ ORDER BY
             WHEN 'updated_at' THEN updated_at::text
         END
     END DESC
-LIMIT $13 OFFSET $12
+LIMIT 20 OFFSET 20 * ($8::integer - 1)
 `
 
 type GetPricesParams struct {
@@ -153,25 +150,20 @@ type GetPricesParams struct {
 	WeightMax       *int32
 	DistanceMin     *int32
 	DistanceMax     *int32
-	CreatedFrom     pgtype.Timestamptz
-	CreatedTo       pgtype.Timestamptz
-	UpdatedFrom     pgtype.Timestamptz
-	UpdatedTo       pgtype.Timestamptz
-	SortOrder       *string
-	SortBy          *string
-	Offset          int32
-	Limit           int32
+	SortOrder       string
+	SortBy          string
+	Page            int32
 }
 
 type GetPricesRow struct {
 	PriceID    int32
 	CargoType  string
-	Weight     int32
-	Distance   int32
+	Weight     decimal.Decimal
+	Distance   decimal.Decimal
 	CreatedAt  pgtype.Timestamptz
 	UpdatedAt  pgtype.Timestamptz
 	DeletedAt  pgtype.Timestamptz
-	TotalCount int64
+	TotalCount int32
 }
 
 func (q *Queries) GetPrices(ctx context.Context, arg GetPricesParams) ([]GetPricesRow, error) {
@@ -181,14 +173,9 @@ func (q *Queries) GetPrices(ctx context.Context, arg GetPricesParams) ([]GetPric
 		arg.WeightMax,
 		arg.DistanceMin,
 		arg.DistanceMax,
-		arg.CreatedFrom,
-		arg.CreatedTo,
-		arg.UpdatedFrom,
-		arg.UpdatedTo,
 		arg.SortOrder,
 		arg.SortBy,
-		arg.Offset,
-		arg.Limit,
+		arg.Page,
 	)
 	if err != nil {
 		return nil, err
@@ -247,17 +234,17 @@ func (q *Queries) SoftDeletePrice(ctx context.Context, priceID int32) error {
 const updatePrice = `-- name: UpdatePrice :exec
 UPDATE prices
 SET
-    cargo_type = COALESCE($1::text, cargo_type),
-    weight = COALESCE($2::int, weight),
-    distance = COALESCE($3::int, distance),
+    cargo_type = $1::text,
+    weight = $2::decimal(10,2),
+    distance = $3::decimal(10,2),
     updated_at = NOW()
 WHERE price_id = $4
 `
 
 type UpdatePriceParams struct {
-	CargoType *string
-	Weight    *int32
-	Distance  *int32
+	CargoType string
+	Weight    decimal.Decimal
+	Distance  decimal.Decimal
 	PriceID   int32
 }
 
