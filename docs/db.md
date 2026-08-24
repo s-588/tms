@@ -11,7 +11,8 @@ create table clients(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-);```
+);
+```
 * name - clients full name
 * email - email address for notifications.
 * email_verified - indicates if email has been verified
@@ -29,7 +30,8 @@ create table employees(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-);```
+);
+```
 * name - employee full name.
 * created_at - record creation timestamp
 * update_at - record last update timestamp
@@ -46,7 +48,8 @@ create table fuels(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-);```
+);
+```
 * name - fuel type name.
 * supplier - supplier of the fuel.
 * price - fuel price per 1 liter.
@@ -66,7 +69,8 @@ create table orders(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-); ```
+);
+```
 * distance - distance between cargo loading and end delivery points.
 * total_price - total price client will pay.
 * status - current order status (e.g., pending, in transit, delivered, etc.)
@@ -86,7 +90,8 @@ One order can be transported by multiple vehicles.
 create table orders_transport(
     order_id integer references orders(order_id),
     transport_id integer references transports(transport_id)
-); ```
+);
+```
 --- 
 
 ## Clients orders junction table
@@ -95,7 +100,8 @@ This is a many-to-many relation junction table.
 create table clients_orders(
     client_id integer references clients(client_id) not null,
     order_id integer references orders(order_id) not null
-);```
+);
+```
 ---
 
 ## Transports table
@@ -111,7 +117,8 @@ create table transports(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-);```
+);
+```
 * employee_id - who is currently responsible for this vehicle.
 * model - vehicle model name.
 * license_plate - vehicle registration plate number.
@@ -135,7 +142,8 @@ create table prices(
     created_at timestamp default now(),
     update_at timestamp default null,
     deleted_at timestamp default null
-);```
+);
+```
 * cargo_type - price increases if cargo type is fragile or dangerous(i.e. glass, fuel).
 * cost - cargo type increasing coefficient(i.e. 1.75 or 175% for fragile cargo).
 * weight - cargo weight coefficient; the more weight - the more vehicle needed - the more price.
