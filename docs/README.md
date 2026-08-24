@@ -95,48 +95,12 @@ To start containers
 task run     
 ```
 
-### Environment Variables
+### Internal
 
 Both app and Postgres uses .env file that contain all environment variables.
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `POSTGRES_HOST` | Database host | `localhost` |
-| `POSTGRES_PORT` | Database port | `5432` |
-| `POSTGRES_USER` | Database user | `tms_user` |
-| `POSTGRES_PASSWORD` | Database password | *(required)* |
-| `POSTGRES_DB` | Database name | `tms` |
-| `SERVER_PORT` | HTTP listen port | `8080` |
-| `SERVER_HTTPS` | Enable TLS | `false` |
-| `LOG_LEVEL` | Log level (DEBUG, INFO, WARN, ERROR) | `INFO` |
-| `LOG_FILE` | Log file path | `~/.local/share/tms/tms.log` |
 
----
-
-## Objects
-
-- **Clients** – CRUD, email verification, order history, export to CSV.
-- **Employees** – roles (driver/dispatcher/mechanic/manager), license tracking, status.
-- **Transports** – vehicles with payload, fuel consumption, insurance/inspection.
-- **Orders** – full lifecycle (pending → assigned → in_progress → completed/cancelled), automatic price calculation (distance + weight + fuel + client discount), DOCX contracts/acts, Excel report generation.
-- **Prices** – configurable coefficients per cargo type, weight, distance.
-- **Nodes** – locations with address and coordinates; distance calculation via PostGIS.
-- **Search** – global search across all tables (placeholder, to be extended).
-
-## API Endpoints (main routes)
-
-| Resource | Methods |
-|----------|---------|
-| `/clients` | GET (list), POST, PUT, DELETE |
-| `/employees` | GET, POST, PUT, DELETE |
-| `/orders` | GET, POST, PUT, DELETE, export, download contract/act |
-| `/transports` | GET, POST, PUT, DELETE |
-| `/inspections` | GET, POST, PUT, DELETE |
-| `/insurances` | GET, POST, PUT, DELETE |
-| `/prices` | GET, POST, PUT, DELETE |
-| `/nodes` | GET, POST, PUT, DELETE |
-| `/search/{query}` | GET |
-
-All endpoints support filtering, sorting, and pagination via query parameters (e.g., `?page=2&sort=created_at&order=desc`).
+[Database docs](db.md).
+[Endpoint docs](endpoints.md).
 
 ## License
 
