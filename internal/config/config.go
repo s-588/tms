@@ -47,10 +47,7 @@ type DBConfig struct {
 }
 
 func New() (Config, error) {
-	err := godotenv.Load()
-	if err != nil {
-		return Config{}, fmt.Errorf("can't load config: %w", err)
-	}
+	_ = godotenv.Load()
 
 	dbcfg, err := parseDBCfg()
 	if err != nil {

@@ -4,18 +4,33 @@ vars:
   TAILWIND_CMD:
     sh: "node_modules/.bin/tailwindcss"
 
-tasks:
-  templ:
-    desc: Run templ with integrated server and hot reload
+  install-tools:
+    desc: Install required Go tools (sqlc, templ, goose) and Node modules
     cmds:
-      - templ generate --watch --cmd="go run cmd/main.go" --open-browser=false
+      - go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+      - go install github.com/a-h/templ/cmd/templ@latest
+      - go install github.com/pressly/goose/v3/cmd/goose@latest
+      - npm install tailwindcss
 
-  tailwind:
-    desc: Watch Tailwind CSS changes
+  generate:
+    desc: Generate sqlc and templ code
     cmds:
-      - "node_modules/.bin/tailwindcss -i static/style/input.css -o static/css/style.css --watch"
+      - sqlc generate
+      - templ generate
+
+  setup:
+    desc: Install tools, generate code
+    cmds:
+      - task: install-tools
+      - task: generate
 
   dev:
     desc: Start development server with hot reload
     cmds:
       - task --parallel tailwind templ
+
+  run:
+    desc: Start development server with hot reload
+    cmds:
+      - docker compose down
+      - docker compose up --build -d
