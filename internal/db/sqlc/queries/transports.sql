@@ -6,15 +6,12 @@ UPDATE transports SET deleted_at = NOW() WHERE transport_id = ANY(sqlc.arg('ids'
 
 -- name: CreateTransport :one
 INSERT INTO transports (
-    model, license_plate, payload_capacity, fuel_consumption,
-    inspection_passed, inspection_date
+    model, license_plate, payload_capacity, fuel_consumption
 ) VALUES (
     sqlc.arg('model')::text,
     sqlc.arg('license_plate')::text,
     sqlc.arg('payload_capacity')::int,
-    sqlc.arg('fuel_consumption')::int,
-    sqlc.arg('inspection_passed')::boolean,
-    sqlc.arg('inspection_date')::date
+    sqlc.arg('fuel_consumption')::int
 )
 RETURNING *;
 

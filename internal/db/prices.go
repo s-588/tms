@@ -146,13 +146,16 @@ func (db DB) ListPrices(ctx context.Context) ([]ui.ListItem, error) {
 	for _, r := range rows {
 		items = append(items, ui.ListItem{
 			ID:   r.PriceID,
-			Name: fmt.Sprintf("%s %s %s",r.CargoType,r.Weight,r.Distance),
+			Name: fmt.Sprintf("%s %s %s", r.CargoType, r.Weight, r.Distance),
 		})
 	}
 	return items, nil
 }
 
 func parsePricesError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 		if pgErr.ConstraintName == "prices_cargo_type_weight_distance_key" {
 			return ErrDuplicatePrice

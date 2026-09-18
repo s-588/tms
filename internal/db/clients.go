@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -190,6 +189,9 @@ func (db DB) ListClients(ctx context.Context) ([]ui.ListItem, error) {
 }
 
 func parseClientError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		switch pgErr.Code {
 		case "23505": // unique constaint violation
@@ -198,13 +200,12 @@ func parseClientError(err error) error {
 				return ErrDuplicateEmail
 			case "clients_phone_key":
 				return ErrDuplicatePhone
-			case "23514": // check constaint violation
-				switch pgErr.ConstraintName {
-				case "clients_phone_check":
-					return ErrIncorrectPhone
-				}
 			}
-			return fmt.Errorf("uknown error: %w", err)
+		case "23514": // check constaint violation
+			switch pgErr.ConstraintName {
+			case "clients_phone_check":
+				return ErrIncorrectPhone
+			}
 		}
 	}
 	return err

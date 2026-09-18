@@ -188,6 +188,9 @@ func (db DB) ListFreeTransports(ctx context.Context) ([]ui.ListItem, error) {
 }
 
 func parseTransportsError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 		if pgErr.ConstraintName == "transports_license_plate_key" {
 			return ErrDuplicateLicense

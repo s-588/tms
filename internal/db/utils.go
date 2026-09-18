@@ -112,47 +112,35 @@ func ToPgTypeTimestamptzFromTime(t time.Time) pgtype.Timestamptz {
 }
 
 // ToNullOrderStatus converts models.Optional[models.OrderStatus] to generated.NullOrderStatus.
-func ToNullOrderStatus(o models.Optional[models.OrderStatus]) generated.NullOrderStatus {
+func ToNullOrderStatus(o models.Optional[models.OrderStatus]) *generated.OrderStatus {
 	if o.Set {
-		return generated.NullOrderStatus{
-			OrderStatus: generated.OrderStatus(o.Value),
-			Valid:       true,
-		}
+		return new(generated.OrderStatus(o.Value))
 	}
-	return generated.NullOrderStatus{Valid: false}
+	return nil
 }
 
 // ToNullEmployeeStatus converts models.Optional[models.EmployeeStatus] to generated.NullEmployeeStatus.
-func ToNullEmployeeStatus(o models.Optional[models.EmployeeStatus]) generated.NullEmployeeStatus {
+func ToNullEmployeeStatus(o models.Optional[models.EmployeeStatus]) *generated.EmployeeStatus {
 	if o.Set {
-		return generated.NullEmployeeStatus{
-			EmployeeStatus: generated.EmployeeStatus(o.Value),
-			Valid:          true,
-		}
+		return new(generated.EmployeeStatus(o.Value))
 	}
-	return generated.NullEmployeeStatus{Valid: false}
+	return nil
 }
 
 // ToNullInspectionStatus converts models.Optional[models.InspectionStatus] to generated.NullInspectionStatus.
-func ToNullInspectionStatus(o models.Optional[models.InspectionStatus]) generated.NullInspectionStatus {
+func ToNullInspectionStatus(o models.Optional[models.InspectionStatus]) *generated.InspectionStatus {
 	if o.Set {
-		return generated.NullInspectionStatus{
-			InspectionStatus: generated.InspectionStatus(o.Value),
-			Valid:            true,
-		}
+		return new(generated.InspectionStatus(o.Value))
 	}
-	return generated.NullInspectionStatus{Valid: false}
+	return nil
 }
 
 // ToNullEmployeeJobTitle converts models.Optional[models.EmployeeJobTitle] to generated.NullEmployeeJobTitle.
-func ToNullEmployeeJobTitle(o models.Optional[models.EmployeeJobTitle]) generated.NullEmployeeJobTitle {
+func ToNullEmployeeJobTitle(o models.Optional[models.EmployeeJobTitle]) *generated.EmployeeJobTitle {
 	if o.Set {
-		return generated.NullEmployeeJobTitle{
-			EmployeeJobTitle: generated.EmployeeJobTitle(o.Value),
-			Valid:            true,
-		}
+		return new(generated.EmployeeJobTitle(o.Value))
 	}
-	return generated.NullEmployeeJobTitle{Valid: false}
+	return nil
 }
 
 // fromPgTimestamptz converts pgtype.Timestamptz to time.Time (zero if invalid).

@@ -29,14 +29,15 @@ func (db DB) CreateNode(ctx context.Context, args CreateNodeArgs) (models.Node, 
 	}
 
 	arg := generated.CreateNodeParams{
-		Name: ToStringPtr(args.Name),
-		Geom: geomBytes,
+		Name:    ToStringPtr(args.Name),
+		Address: args.Address,
+		Geom:    geomBytes,
 	}
 	genNode, err := db.queries.CreateNode(ctx, arg)
 	if err != nil {
 		return models.Node{}, err
 	}
-	return convertGeneratedNodeToModel(genNode), nil
+	return convertCreateNodeRowToModel(genNode), nil
 }
 
 func (db DB) GetNodeByID(ctx context.Context, nodeID int32) (models.Node, error) {
@@ -150,6 +151,37 @@ func convertGeneratedNodeToModel(n generated.Node) models.Node {
 	}
 }
 
+func convertCreateNodeRowToModel(n generated.CreateNodeRow) models.Node {
+	var orbPt orb.Point
+
+	geomBytes, ok := n.Geom.([]byte)
+	if !ok || len(geomBytes) == 0 {
+		slog.Error("node geom is not []byte or empty", "node", n)
+	} else {
+		geom, err := wkb.Unmarshal(geomBytes)
+		if err != nil {
+			slog.Error("can't unmarshal node from database", "node", n, "err", err)
+		} else if point, ok := geom.(orb.Point); ok {
+			orbPt = point
+		} else {
+			slog.Error("can't convert node geometry to point", "node", n, "type", fmt.Sprintf("%T", geom))
+		}
+	}
+
+	return models.Node{
+		NodeID:  n.NodeID,
+		Address: n.Address, // ← you were missing this
+		Name:    fromStringPtr(n.Name),
+		Geom: models.Point{
+			X: orbPt.X(),
+			Y: orbPt.Y(),
+		},
+		CreatedAt: fromPgTimestamptz(n.CreatedAt),
+		UpdatedAt: fromPgTimestamptz(n.UpdatedAt),
+		DeletedAt: fromPgTimestamptz(n.DeletedAt),
+	}
+}
+
 func convertGeneratedNodeRowToModel(row generated.GetNodesRow) models.Node {
 	return models.Node{
 		NodeID: row.NodeID,
@@ -180,9 +212,12 @@ func (db DB) ListNodes(ctx context.Context) ([]ui.ListItem, error) {
 }
 
 func parseNodesError(err error) error {
+	if err == nil {
+		return nil
+	}
 	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok && pgErr.Code == "23505" {
 		if pgErr.ConstraintName == "nodes_address_key" {
-			return ErrDuplicatePrice
+			return ErrDuplicateNodeAddress
 		}
 		return fmt.Errorf("unhandled error: %w", err)
 	}

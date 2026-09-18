@@ -10,9 +10,15 @@ INSERT INTO nodes (
 ) VALUES (
     sqlc.arg('address')::text,
     sqlc.narg('name')::text,
-    sqlc.arg('geom')::geography
+    ST_GeogFromWKB(sqlc.arg('geom'))
 )
-RETURNING *;
+RETURNING node_id,
+    address,
+    name,
+    ST_AsBinary(geom) AS geom,   -- or ST_AsEWKB(geom)
+    created_at,
+    updated_at,
+    deleted_at;
 
 -- name: GetNode :one
 SELECT  node_id,
@@ -70,7 +76,7 @@ UPDATE nodes
 SET
     address = sqlc.arg('address')::text,
     name = sqlc.narg('name')::text,
-    geom = sqlc.arg('geom')::geography,
+    geom = ST_GeogFromWKB(sqlc.arg('geom')),
     updated_at = NOW()
 WHERE node_id = sqlc.arg('node_id');
 
