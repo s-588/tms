@@ -7,6 +7,7 @@ import (
 
 	"github.com/s-588/tms/internal/config"
 	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/grpc"
 	"github.com/s-588/tms/internal/http"
 	"github.com/s-588/tms/internal/logger"
 )
@@ -17,7 +18,6 @@ func main() {
 		slog.Error("can't start app", "error", err)
 		return
 	}
-	slog.Info("config successfully parsed", "config", cfg)
 	closeLogFile, err := logger.SetupSLog(cfg.Logger)
 	if err != nil {
 		slog.Error("can't start app", "error", err)
@@ -34,6 +34,14 @@ func main() {
 		return
 	}
 	slog.Info("database connected")
+
+	grpcSrv := grpc.NewServer(dbConn)
+	go func() {
+		slog.Info("grpc server started")
+		if err := grpcSrv.Run(cfg.Server.GRPCPort); err != nil {
+			slog.Error("gRPC server failed", "error", err)
+		}
+	}()
 
 	s := http.New(context.Background(), dbConn, cfg.Server)
 	slog.Info("server ready to start")

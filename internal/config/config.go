@@ -17,8 +17,9 @@ var (
 		Addr: "postgres",
 	}
 	DefaultServerConfig = ServerConfig{
-		Port:  "8080",
-		HTTPS: false,
+		HTTPPort: "8080",
+		GRPCPort: "50051",
+		HTTPS:    false,
 	}
 )
 
@@ -34,8 +35,9 @@ type LoggerConfig struct {
 }
 
 type ServerConfig struct {
-	Port  string
-	HTTPS bool
+	HTTPPort string
+	GRPCPort string
+	HTTPS    bool
 }
 
 type DBConfig struct {
@@ -100,15 +102,19 @@ func parseDBCfg() (DBConfig, error) {
 
 func parseServerCfg() (ServerConfig, error) {
 	cfg := ServerConfig{
-		Port: os.Getenv("SERVER_PORT"),
+		HTTPPort: os.Getenv("HTTP_SERVER_PORT"),
+		GRPCPort: os.Getenv("GRPC_SERVER_PORT"),
 	}
 	https := os.Getenv("SERVER_HTTPS")
 	if https == "1" || https == "true" || https == "yes" || https == "y" {
 		cfg.HTTPS = true
 	}
 
-	if cfg.Port == "" {
-		cfg.Port = DefaultServerConfig.Port
+	if cfg.HTTPPort == "" {
+		cfg.HTTPPort = DefaultServerConfig.HTTPPort
+	}
+	if cfg.GRPCPort == "" {
+		cfg.GRPCPort = DefaultServerConfig.GRPCPort
 	}
 
 	return cfg, nil

@@ -23,5 +23,6 @@ COPY --from=builder /app/static ./static
 COPY --from=builder /tms .
 
 EXPOSE 8080
+EXPOSE 50051
 
 ENTRYPOINT ["./tms"]

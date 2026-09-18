@@ -1,0 +1,579 @@
+syntax = "proto3";
+
+package tms;
+option go_package = "github.com/s-588/tms/proto/tms";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+enum EmployeeStatus {
+  EMPLOYEE_STATUS_UNSPECIFIED = 0;
+  EMPLOYEE_STATUS_AVAILABLE = 1;
+  EMPLOYEE_STATUS_ASSIGNED = 2;
+  EMPLOYEE_STATUS_UNAVAILABLE = 3;
+}
+
+enum EmployeeJobTitle {
+  EMPLOYEE_JOB_TITLE_UNSPECIFIED = 0;
+  EMPLOYEE_JOB_TITLE_DRIVER = 1;
+  EMPLOYEE_JOB_TITLE_DISPATCHER = 2;
+  EMPLOYEE_JOB_TITLE_MECHANIC = 3;
+  EMPLOYEE_JOB_TITLE_LOGISTICS_MANAGER = 4;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_PENDING = 1;
+  ORDER_STATUS_ASSIGNED = 2;
+  ORDER_STATUS_IN_PROGRESS = 3;
+  ORDER_STATUS_COMPLETED = 4;
+  ORDER_STATUS_CANCELLED = 5;
+}
+
+enum InspectionStatus {
+  INSPECTION_STATUS_UNSPECIFIED = 0;
+  INSPECTION_STATUS_READY = 1;
+  INSPECTION_STATUS_REPAIR = 2;
+  INSPECTION_STATUS_OVERDUE = 3;
+}
+
+message Point {
+  double x = 1;
+  double y = 2;
+}
+
+// All currency fields are using the string type to accuratly preserve decimal values
+
+message Client {
+  int32 client_id = 1;
+  string name = 2;
+  string email = 3;
+  bool email_verified = 4;
+  string phone = 5;
+  int32 score = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp deleted_at = 9;
+  // Optional denormalized orders – only populated in GetClient
+  repeated Order orders = 10;
+}
+
+message Employee {
+  int32 employee_id = 1;
+  string name = 2;
+  EmployeeStatus status = 3;
+  EmployeeJobTitle job_title = 4;
+  google.protobuf.Timestamp hire_date = 5;
+  string salary = 6;               
+  google.protobuf.Timestamp license_issued = 7;
+  google.protobuf.Timestamp license_expiration = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  google.protobuf.Timestamp deleted_at = 11;
+}
+
+message Transport {
+  int32 transport_id = 1;
+  string model = 2;
+  string license_plate = 3;
+  int32 payload_capacity = 4;
+  int32 fuel_consumption = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp deleted_at = 8;
+}
+
+message Order {
+  int32 order_id = 1;
+  int32 client_id = 2;
+  int32 transport_id = 3;
+  int32 employee_id = 4;
+  int32 grade = 5;
+  double distance = 6;
+  int32 weight = 7;
+  string total_price = 8;          
+  int32 price_id = 9;
+  OrderStatus status = 10;
+  int32 node_id_start = 11;
+  int32 node_id_end = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  google.protobuf.Timestamp deleted_at = 15;
+  // Denormalized fields,populated on read
+  string client_name = 16;
+  string employee_name = 17;
+  string transport_license_plate = 18;
+  string price_cargo_type = 19;
+  string node_start_name = 20;
+  string node_end_name = 21;
+}
+
+message Price {
+  int32 price_id = 1;
+  string cargo_type = 2;
+  string weight = 3;               
+  string distance = 4;            
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp deleted_at = 7;
+}
+
+message Node {
+  int32 node_id = 1;
+  string name = 2;
+  Point geom = 3;
+  string address = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  google.protobuf.Timestamp deleted_at = 7;
+}
+
+message Inspection {
+  int32 inspection_id = 1;
+  int32 transport_id = 2;
+  google.protobuf.Timestamp inspection_date = 3;
+  google.protobuf.Timestamp inspection_expiration = 4;
+  InspectionStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  google.protobuf.Timestamp deleted_at = 8;
+}
+
+message Insurance {
+  int32 insurance_id = 1;
+  int32 transport_id = 2;
+  google.protobuf.Timestamp insurance_date = 3;
+  google.protobuf.Timestamp insurance_expiration = 4;
+  string payment = 5;              
+  string coverage = 6;            
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.Timestamp deleted_at = 9;
+}
+
+message CreateClientRequest {
+  string name = 1;
+  string email = 2;
+  string phone = 3;
+}
+
+message GetClientRequest {
+  int32 client_id = 1;
+}
+
+message ListClientsRequest {
+  int32 page = 1;
+  optional string name = 2;
+  optional string email = 3;
+  optional string phone = 4;
+  optional bool email_verified = 5;
+  string sort_by = 6;      // column name
+  string sort_order = 7;   // asc or desc
+}
+
+message ListClientsResponse {
+  repeated Client clients = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateClientRequest {
+  int32 client_id = 1;
+  string name = 2;
+  string email = 3;
+  string phone = 4;
+}
+
+message DeleteClientRequest {
+  int32 client_id = 1;
+}
+
+service ClientService {
+  rpc CreateClient(CreateClientRequest) returns (Client);
+  rpc GetClient(GetClientRequest) returns (Client);
+  rpc ListClients(ListClientsRequest) returns (ListClientsResponse);
+  rpc UpdateClient(UpdateClientRequest) returns (google.protobuf.Empty);
+  rpc DeleteClient(DeleteClientRequest) returns (google.protobuf.Empty);
+}
+
+message CreateEmployeeRequest {
+  string name = 1;
+  EmployeeStatus status = 2;
+  EmployeeJobTitle job_title = 3;
+  google.protobuf.Timestamp hire_date = 4;
+  string salary = 5;               
+  google.protobuf.Timestamp license_issued = 6;
+  google.protobuf.Timestamp license_expiration = 7;
+}
+
+message GetEmployeeRequest {
+  int32 employee_id = 1;
+}
+
+message ListEmployeesRequest {
+  int32 page = 1;
+  optional string name = 2;
+  optional EmployeeJobTitle job_title = 3;
+  optional EmployeeStatus status = 4;
+  optional string salary_min = 5;   
+  optional string salary_max = 6;
+  string sort_by = 7;
+  string sort_order = 8;
+}
+
+message ListEmployeesResponse {
+  repeated Employee employees = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateEmployeeRequest {
+  int32 employee_id = 1;
+  string name = 2;
+  EmployeeStatus status = 3;
+  EmployeeJobTitle job_title = 4;
+  google.protobuf.Timestamp hire_date = 5;
+  string salary = 6;
+  google.protobuf.Timestamp license_issued = 7;
+  google.protobuf.Timestamp license_expiration = 8;
+}
+
+message DeleteEmployeeRequest {
+  int32 employee_id = 1;
+}
+
+service EmployeeService {
+  rpc CreateEmployee(CreateEmployeeRequest) returns (Employee);
+  rpc GetEmployee(GetEmployeeRequest) returns (Employee);
+  rpc ListEmployees(ListEmployeesRequest) returns (ListEmployeesResponse);
+  rpc UpdateEmployee(UpdateEmployeeRequest) returns (google.protobuf.Empty);
+  rpc DeleteEmployee(DeleteEmployeeRequest) returns (google.protobuf.Empty);
+}
+
+message CreateTransportRequest {
+  string model = 1;
+  string license_plate = 2;
+  int32 payload_capacity = 3;
+  int32 fuel_consumption = 4;
+}
+
+message GetTransportRequest {
+  int32 transport_id = 1;
+}
+
+message ListTransportsRequest {
+  int32 page = 1;
+  optional string model = 2;
+  optional string license_plate = 3;
+  optional int32 payload_capacity_min = 4;
+  optional int32 payload_capacity_max = 5;
+  optional int32 fuel_consumption_min = 6;
+  optional int32 fuel_consumption_max = 7;
+  string sort_by = 8;
+  string sort_order = 9;
+}
+
+message ListTransportsResponse {
+  repeated Transport transports = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateTransportRequest {
+  int32 transport_id = 1;
+  string model = 2;
+  string license_plate = 3;
+  int32 payload_capacity = 4;
+  int32 fuel_consumption = 5;
+}
+
+message DeleteTransportRequest {
+  int32 transport_id = 1;
+}
+
+service TransportService {
+  rpc CreateTransport(CreateTransportRequest) returns (Transport);
+  rpc GetTransport(GetTransportRequest) returns (Transport);
+  rpc ListTransports(ListTransportsRequest) returns (ListTransportsResponse);
+  rpc UpdateTransport(UpdateTransportRequest) returns (google.protobuf.Empty);
+  rpc DeleteTransport(DeleteTransportRequest) returns (google.protobuf.Empty);
+}
+
+message CreateOrderRequest {
+  int32 client_id = 1;
+  int32 transport_id = 2;
+  int32 employee_id = 3;
+  int32 weight = 4; // in kg
+  int32 price_id = 5;
+  OrderStatus status = 6;
+  int32 node_id_start = 7;
+  int32 node_id_end = 8;
+  // grade and distance are calculated server-side, no need to pass them.
+}
+
+message GetOrderRequest {
+  int32 order_id = 1;
+}
+
+message ListOrdersRequest {
+  int32 page = 1;
+  optional int32 client_id = 2;
+  optional int32 transport_id = 3;
+  optional int32 employee_id = 4;
+  optional int32 price_id = 5;
+  optional double distance_min = 6;
+  optional double distance_max = 7;
+  optional int32 weight_min = 8;
+  optional int32 weight_max = 9;
+  optional string total_price_min = 10;   
+  optional string total_price_max = 11;
+  optional int32 grade_min = 12;
+  optional int32 grade_max = 13;
+  optional OrderStatus status = 14;
+  string sort_by = 15;
+  string sort_order = 16;
+}
+
+message ListOrdersResponse {
+  repeated Order orders = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateOrderRequest {
+  int32 order_id = 1;
+  int32 client_id = 2;
+  int32 transport_id = 3;
+  int32 employee_id = 4;
+  int32 weight = 5;
+  int32 price_id = 6;
+  OrderStatus status = 7;
+  int32 node_id_start = 8;
+  int32 node_id_end = 9;
+}
+
+message UpdateOrderStatusRequest {
+  int32 order_id = 1;
+  OrderStatus status = 2;
+}
+
+message DeleteOrderRequest {
+  int32 order_id = 1;
+}
+
+message CalculateOrderCostRequest {
+  int32 client_id = 1;
+  int32 price_id = 2;
+  int32 weight = 3;               // in kg
+  int32 fuel_consumption = 4;     // L/100km
+  int32 payload_capacity = 5;     // in kg
+  int32 node_start_id = 6;
+  int32 node_end_id = 7;
+}
+
+message CalculateOrderCostResponse {
+  string total_price = 1;         
+}
+
+service OrderService {
+  rpc CreateOrder(CreateOrderRequest) returns (Order);
+  rpc GetOrder(GetOrderRequest) returns (Order);
+  rpc ListOrders(ListOrdersRequest) returns (ListOrdersResponse);
+  rpc UpdateOrder(UpdateOrderRequest) returns (google.protobuf.Empty);
+  rpc UpdateOrderStatus(UpdateOrderStatusRequest) returns (google.protobuf.Empty);
+  rpc DeleteOrder(DeleteOrderRequest) returns (google.protobuf.Empty);
+  rpc CalculateOrderCost(CalculateOrderCostRequest) returns (CalculateOrderCostResponse);
+}
+
+message CreatePriceRequest {
+  string cargo_type = 1;
+  string weight = 2;               
+  string distance = 3;             
+}
+
+message GetPriceRequest {
+  int32 price_id = 1;
+}
+
+message ListPricesRequest {
+  int32 page = 1;
+  optional string cargo_type = 2;
+  optional int32 weight_min = 3;
+  optional int32 weight_max = 4;
+  optional int32 distance_min = 5;
+  optional int32 distance_max = 6;
+  string sort_by = 7;
+  string sort_order = 8;
+}
+
+message ListPricesResponse {
+  repeated Price prices = 1;
+  int32 total_pages = 2;
+}
+
+message UpdatePriceRequest {
+  int32 price_id = 1;
+  string cargo_type = 2;
+  string weight = 3;
+  string distance = 4;
+}
+
+message DeletePriceRequest {
+  int32 price_id = 1;
+}
+
+service PriceService {
+  rpc CreatePrice(CreatePriceRequest) returns (Price);
+  rpc GetPrice(GetPriceRequest) returns (Price);
+  rpc ListPrices(ListPricesRequest) returns (ListPricesResponse);
+  rpc UpdatePrice(UpdatePriceRequest) returns (google.protobuf.Empty);
+  rpc DeletePrice(DeletePriceRequest) returns (google.protobuf.Empty);
+}
+
+message CreateNodeRequest {
+  optional string name = 1;
+  string address = 2;
+  Point geom = 3;
+}
+
+message GetNodeRequest {
+  int32 node_id = 1;
+}
+
+message ListNodesRequest {
+  int32 page = 1;
+  optional string name = 2;
+  string sort_by = 3;
+  string sort_order = 4;
+}
+
+message ListNodesResponse {
+  repeated Node nodes = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateNodeRequest {
+  int32 node_id = 1;
+  optional string name = 2;
+  string address = 3;
+  Point geom = 4;
+}
+
+message DeleteNodeRequest {
+  int32 node_id = 1;
+}
+
+message CalculateDistanceRequest {
+  int32 node_a_id = 1;
+  int32 node_b_id = 2;
+}
+
+message CalculateDistanceResponse {
+  double distance_km = 1;
+}
+
+service NodeService {
+  rpc CreateNode(CreateNodeRequest) returns (Node);
+  rpc GetNode(GetNodeRequest) returns (Node);
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+  rpc UpdateNode(UpdateNodeRequest) returns (google.protobuf.Empty);
+  rpc DeleteNode(DeleteNodeRequest) returns (google.protobuf.Empty);
+  rpc CalculateDistance(CalculateDistanceRequest) returns (CalculateDistanceResponse);
+}
+
+message CreateInspectionRequest {
+  int32 transport_id = 1;
+  google.protobuf.Timestamp inspection_date = 2;
+  google.protobuf.Timestamp inspection_expiration = 3;
+  InspectionStatus status = 4;
+}
+
+message GetInspectionRequest {
+  int32 inspection_id = 1;
+}
+
+message ListInspectionsRequest {
+  int32 page = 1;
+  optional int32 transport_id = 2;
+  optional InspectionStatus status = 3;
+  optional google.protobuf.Timestamp inspection_date_from = 4;
+  optional google.protobuf.Timestamp inspection_date_to = 5;
+  optional google.protobuf.Timestamp inspection_expiration_from = 6;
+  optional google.protobuf.Timestamp inspection_expiration_to = 7;
+  string sort_by = 8;
+  string sort_order = 9;
+}
+
+message ListInspectionsResponse {
+  repeated Inspection inspections = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateInspectionRequest {
+  int32 inspection_id = 1;
+  int32 transport_id = 2;
+  google.protobuf.Timestamp inspection_date = 3;
+  google.protobuf.Timestamp inspection_expiration = 4;
+  InspectionStatus status = 5;
+}
+
+message DeleteInspectionRequest {
+  int32 inspection_id = 1;
+}
+
+service InspectionService {
+  rpc CreateInspection(CreateInspectionRequest) returns (Inspection);
+  rpc GetInspection(GetInspectionRequest) returns (Inspection);
+  rpc ListInspections(ListInspectionsRequest) returns (ListInspectionsResponse);
+  rpc UpdateInspection(UpdateInspectionRequest) returns (google.protobuf.Empty);
+  rpc DeleteInspection(DeleteInspectionRequest) returns (google.protobuf.Empty);
+}
+
+message CreateInsuranceRequest {
+  int32 transport_id = 1;
+  google.protobuf.Timestamp insurance_date = 2;
+  google.protobuf.Timestamp insurance_expiration = 3;
+  string payment = 4;              
+  string coverage = 5;             
+}
+
+message GetInsuranceRequest {
+  int32 insurance_id = 1;
+}
+
+message ListInsurancesRequest {
+  int32 page = 1;
+  optional int32 transport_id = 2;
+  optional google.protobuf.Timestamp insurance_date_from = 3;
+  optional google.protobuf.Timestamp insurance_date_to = 4;
+  optional google.protobuf.Timestamp insurance_expiration_from = 5;
+  optional google.protobuf.Timestamp insurance_expiration_to = 6;
+  optional string payment_min = 7;
+  optional string payment_max = 8;
+  optional string coverage_min = 9;
+  optional string coverage_max = 10;
+  string sort_by = 11;
+  string sort_order = 12;
+}
+
+message ListInsurancesResponse {
+  repeated Insurance insurances = 1;
+  int32 total_pages = 2;
+}
+
+message UpdateInsuranceRequest {
+  int32 insurance_id = 1;
+  int32 transport_id = 2;
+  google.protobuf.Timestamp insurance_date = 3;
+  google.protobuf.Timestamp insurance_expiration = 4;
+  string payment = 5;
+  string coverage = 6;
+}
+
+message DeleteInsuranceRequest {
+  int32 insurance_id = 1;
+}
+
+service InsuranceService {
+  rpc CreateInsurance(CreateInsuranceRequest) returns (Insurance);
+  rpc GetInsurance(GetInsuranceRequest) returns (Insurance);
+  rpc ListInsurances(ListInsurancesRequest) returns (ListInsurancesResponse);
+  rpc UpdateInsurance(UpdateInsuranceRequest) returns (google.protobuf.Empty);
+  rpc DeleteInsurance(DeleteInsuranceRequest) returns (google.protobuf.Empty);
+}

@@ -2,9 +2,7 @@ package http
 
 import (
 	"context"
-	"embed"
 	"fmt"
-	"log"
 	"log/slog"
 	"mime"
 	"net"
@@ -31,7 +29,7 @@ func New(ctx context.Context, db db.DB, cfg config.ServerConfig) *Server {
 		slog.Warn("set .js mime type: %w", "error", err)
 	}
 	return &Server{
-		Port:    cfg.Port,
+		Port:    cfg.HTTPPort,
 		Cfg:     cfg,
 		mux:     http.NewServeMux(),
 		Handler: handler.NewHandler(db),
@@ -43,8 +41,7 @@ func (s Server) Start() error {
 	s.mux.HandleFunc("/", IndexHandler)
 	s.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 
-	addr := "0.0.0.0:" + s.Cfg.Port
-	log.Printf("listening on %s (HTTPS=%v)", addr, s.Cfg.HTTPS) // ← add this so you can see it in the logs
+	addr := "0.0.0.0:" + s.Cfg.HTTPPort
 
 	ln, err := net.Listen("tcp4", addr) // force IPv4 socket
 	if err != nil {
