@@ -65,7 +65,7 @@ func parseClientFilters(r *http.Request) models.ClientFilter {
 	if err := checkEmail(q.Get("email")); q.Has("email") && err == nil {
 		filter.Email.SetValue(q.Get("email"))
 	}
-	if phone,err := checkPhone(q.Get("phone")); q.Has("phone") && err == nil {
+	if phone, err := checkPhone(q.Get("phone")); q.Has("phone") && err == nil {
 		filter.Phone.SetValue(phone)
 	}
 	if q.Has("email_verified") {
@@ -158,8 +158,9 @@ func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 	h.GetClients(w, r)
 }
 
-func parseClientForm(r *http.Request) (err error, form ui.Form) {
-	form = make(ui.Form)
+func parseClientForm(r *http.Request) (error, ui.Form) {
+	var err error
+	form := make(ui.Form)
 	name := r.PostForm.Get("name")
 	form["name"] = ui.FormField{
 		Value: name,
@@ -194,7 +195,7 @@ func parseClientForm(r *http.Request) (err error, form ui.Form) {
 		}
 	}
 
-	return
+	return err, form
 }
 
 func checkClientName(name string) error {
@@ -215,8 +216,8 @@ func checkEmail(email string) error {
 // checkPhone validates phone format using a regex
 func checkPhone(phone string) (string, error) {
 	s := strings.Builder{}
-	for _, ch := range phone{
-		if unicode.IsDigit(ch){
+	for _, ch := range phone {
+		if unicode.IsDigit(ch) {
 			s.WriteRune(ch)
 		}
 	}
@@ -225,8 +226,8 @@ func checkPhone(phone string) (string, error) {
 		slog.Debug("not a phone number", "phone", phone, "error", err)
 		return phone, errors.New("not a phone")
 	}
-	
-	if !phonenumbers.IsValidNumberForRegion(p,"BY"){
+
+	if !phonenumbers.IsValidNumberForRegion(p, "BY") {
 		slog.Debug("incorrect phone format", "phone", p.String())
 		return phone, errors.New("incorrect phone format for Belarus")
 	}
@@ -300,14 +301,14 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.Error("can't recieve client", "error", err)
 		ui.Toast("error", "Internal error", "Something wen wrong")
-		h.GetClientHandler(w,r)
+		h.GetClientHandler(w, r)
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't http form", "error", err)
 		ui.Toast("error", "Bad request", "Invalid form format")
-		h.GetClientHandler(w,r)
+		h.GetClientHandler(w, r)
 		return
 	}
 
@@ -340,13 +341,13 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 		default:
 			slog.Error("can't update client", "error", err, "id", id)
 			ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
-			h.GetClientHandler(w,r)
+			h.GetClientHandler(w, r)
 			return
 		}
 	}
 
 	slog.Debug("update client", "form data", form)
-	ui.Toast("success", "Client updated", "Client successfully updated").Render(r.Context(),w)
+	ui.Toast("success", "Client updated", "Client successfully updated").Render(r.Context(), w)
 	h.GetClientHandler(w, r)
 	h.GetClients(w, r)
 }
