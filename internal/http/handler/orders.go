@@ -29,14 +29,17 @@ func (h Handler) GetOrdersPage(w http.ResponseWriter, r *http.Request) {
 	orders, total, err := h.DB.GetOrders(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of orders", "error", err)
-		ui.Toast("error", "Can't render orders page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render orders page", "Something went wrong")
 		return
 	}
 
 	ctx := addListsToContext(r.Context(), h.DB)
 	ctx = context.WithValue(ctx, ui.FilterKey, filter)
 
-	ui.OrdersPage(orders, page, total).Render(ctx, w)
+	err = ui.OrdersPage(orders, page, total).Render(ctx, w)
+	if err != nil {
+		slog.Error("can't render orders page", "error", err)
+	}
 }
 
 func (h Handler) GetOrders(w http.ResponseWriter, r *http.Request) {
@@ -46,56 +49,60 @@ func (h Handler) GetOrders(w http.ResponseWriter, r *http.Request) {
 	orders, total, err := h.DB.GetOrders(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of orders", "error", err)
-		ui.Toast("error", "Can't get orders data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get orders data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve orders from database", "filter", filter, "page", page,
 		"total pages", total, "total orders", len(orders))
-	ui.OrdersTable(orders, page, total, true).Render(r.Context(), w)
+	err = ui.OrdersTable(orders, page, total, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render orders table", "error", err)
+	}
 }
 
+//nolint:funlen,gocyclo // function is clear and understandable
 func parseOrderFilters(r *http.Request) models.OrderFilter {
 	filter := models.OrderFilter{}
 	q := r.URL.Query()
 
 	if clientID := q.Get("client_id"); clientID != "" {
-		if val, err := strconv.Atoi(clientID); err == nil && val > 0 {
-			filter.ClientID.SetValue(int32(val))
+		if val, err := parseID(clientID); err == nil {
+			filter.ClientID.SetValue(val)
 		}
 	}
 	if transportID := q.Get("transport_id"); transportID != "" {
-		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
-			filter.TransportID.SetValue(int32(val))
+		if val, err := parseID(transportID); err == nil {
+			filter.TransportID.SetValue(val)
 		}
 	}
 	if employeeID := q.Get("employee_id"); employeeID != "" {
-		if val, err := strconv.Atoi(employeeID); err == nil && val > 0 {
-			filter.EmployeeID.SetValue(int32(val))
+		if val, err := parseID(employeeID); err == nil {
+			filter.EmployeeID.SetValue(val)
 		}
 	}
 	if priceID := q.Get("price_id"); priceID != "" {
-		if val, err := strconv.Atoi(priceID); err == nil && val > 0 {
-			filter.PriceID.SetValue(int32(val))
+		if val, err := parseID(priceID); err == nil {
+			filter.PriceID.SetValue(val)
 		}
 	}
 	if distanceMin := q.Get("distance_min"); distanceMin != "" {
-		if val, err := strconv.ParseFloat(distanceMin, 10); err == nil && val > 0 {
+		if val, err := strconv.ParseFloat(distanceMin, 64); err == nil && val > 0 {
 			filter.DistanceMin.SetValue(val)
 		}
 	}
 	if distanceMax := q.Get("distance_max"); distanceMax != "" {
-		if val, err := strconv.ParseFloat(distanceMax, 10); err == nil && val > 0 {
+		if val, err := strconv.ParseFloat(distanceMax, 64); err == nil && val > 0 {
 			filter.DistanceMax.SetValue(val)
 		}
 	}
 	if weightMin := q.Get("weight_min"); weightMin != "" {
-		if val, err := strconv.Atoi(weightMin); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(weightMin, 10, 32); err == nil && val > 0 {
 			filter.WeightMin.SetValue(int32(val))
 		}
 	}
 	if weightMax := q.Get("weight_max"); weightMax != "" {
-		if val, err := strconv.Atoi(weightMax); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(weightMax, 10, 32); err == nil && val > 0 {
 			filter.WeightMax.SetValue(int32(val))
 		}
 	}
@@ -137,212 +144,184 @@ func parseOrderFilters(r *http.Request) models.OrderFilter {
 	return filter
 }
 
+func parseID(clientID string) (int32, error) {
+	val, err := strconv.ParseInt(clientID, 10, 32)
+	if err != nil {
+		return 0, fmt.Errorf("can't parse int: %w", err)
+	} else if val < 0 {
+		return 0, fmt.Errorf("id less than zero")
+	}
+	return int32(val), nil
+}
+
 func (h Handler) CreateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parseOrderCreateForm(r)
+	form, args, err := parseOrderCreateForm(r)
 	ctx := addListsToContext(r.Context(), h.DB)
-
-	if hasError != nil {
-		slog.Debug("incorrect input data for adding order", "data", form)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+	if err != nil {
+		h.renderOrderFormError(w, ctx, form, "", "") // no toast, just re-render form
 		return
 	}
 
-	// Convert form values
-	clientID, _ := strconv.ParseInt(form["client_id"].Value, 10, 32)
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
-	employeeID, _ := strconv.ParseInt(form["employee_id"].Value, 10, 32)
-	priceID, _ := strconv.ParseInt(form["price_id"].Value, 10, 32)
-	weight, _ := strconv.ParseInt(form["weight"].Value, 10, 32)
-	nodeStart, _ := strconv.ParseInt(form["node_start"].Value, 10, 32)
-	nodeEnd, _ := strconv.ParseInt(form["node_end"].Value, 10, 32)
+	args.Grade = 0
 
-	// Set default values for fields no longer in form
-	grade := uint8(0)
-	distance, err := h.DB.CalculateDistance(r.Context(), int32(nodeStart), int32(nodeEnd)) // will be calculated server‑side
+	distance, err := h.DB.CalculateDistance(r.Context(), args.NodeIDStart, args.NodeIDEnd)
 	if err != nil {
 		slog.Error("can't calculate distance", "error", err)
-		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Something went wrong")
 		return
 	}
+	args.Distance = distance
 
-	transport, err := h.DB.GetTransportByID(ctx, int32(transportID))
+	transport, err := h.DB.GetTransportByID(ctx, args.TransportID)
 	if err != nil {
 		slog.Error("can't get transport", "error", err)
-		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Something went wrong")
 		return
 	}
 
-	if transport.PayloadCapacity < int32(weight) {
+	if transport.PayloadCapacity < args.Weight {
 		form["transport_id"] = ui.FormField{
-			Value: strconv.FormatInt(transportID, 10),
+			Value: strconv.FormatInt(int64(args.TransportID), 10),
 			Err:   fmt.Errorf("cannot ship more than vehicle can borrow"),
 		}
-		ui.Toast("error", "Can't create order", "Cannot ship more than vehicle can borrow").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Cannot ship more than vehicle can borrow")
 		return
 	}
 
-	employee, err := h.DB.GetEmployeeByID(ctx, int32(employeeID))
+	employee, err := h.DB.GetEmployeeByID(ctx, args.EmployeeID)
 	if err != nil {
 		slog.Error("can't get employee", "error", err)
-		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Something went wrong")
 		return
 	}
 
 	if employee.Status != models.EmployeeStatusAvailable || employee.JobTitle != models.EmployeeJobTitleDriver {
 		form["employee_id"] = ui.FormField{
-			Value: strconv.FormatInt(employeeID, 10),
+			Value: strconv.FormatInt(int64(args.EmployeeID), 10),
 			Err:   fmt.Errorf("unavailable clients cannot be assigned"),
 		}
-		ui.Toast("error", "Can't create order", "Unavailable clients cannot be assigned").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Unavailable clients cannot be assigned")
 		return
 	}
 
 	totalPrice, err := tms.CalculateOrderCost(ctx, h.DB, tms.CalculateOrderCostArgs{
-		ClientID:        int32(clientID),
-		PriceID:         int32(priceID),
-		Weight:          weight,
+		ClientID:        args.ClientID,
+		PriceID:         args.PriceID,
+		Weight:          int64(args.Weight),
 		FuelConsumption: transport.FuelConsumption,
 		PayloadCapacity: transport.PayloadCapacity,
-		NodeStartID:     int32(nodeStart),
-		NodeEndID:       int32(nodeEnd),
-	})
-
-	order, err := h.DB.CreateOrder(ctx, db.CreateOrderArg{
-		ClientID:    int32(clientID),
-		TransportID: int32(transportID),
-		EmployeeID:  int32(employeeID),
-		Grade:       grade,
-		Distance:    distance,
-		Weight:      int32(weight),
-		TotalPrice:  totalPrice,
-		PriceID:     int32(priceID),
-		Status:      models.OrderStatus(form["status"].Value),
-		NodeIDStart: int32(nodeStart),
-		NodeIDEnd:   int32(nodeEnd),
+		NodeStartID:     args.NodeIDStart,
+		NodeEndID:       args.NodeIDEnd,
 	})
 	if err != nil {
+		slog.Error("can't calculate order cost", "error", err)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Something went wrong")
+		return
+	}
+	args.TotalPrice = totalPrice
+
+	order, err := h.DB.CreateOrder(ctx, args)
+	if err != nil {
 		slog.Error("can't create order", "error", err)
-		slog.Debug("can't create order",
-			"ClientID", int32(clientID),
-			"TransportID", int32(transportID),
-			"EmployeeID", int32(employeeID),
-			"Grade", grade,
-			"Distance", distance,
-			"Weight", int32(weight),
-			"TotalPrice", totalPrice,
-			"PriceID", int32(priceID),
-			"Status", models.OrderStatus(form["status"].Value),
-			"NodeIDStart", int32(nodeStart),
-			"NodeIDEnd", int32(nodeEnd))
-		ui.Toast("error", "Can't create order", "Something went wrong").Render(ctx, w)
-		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersAddContent(true).Render(ctx, w)
+		h.renderOrderFormError(w, ctx, form, "Can't create order", "Something went wrong")
 		return
 	}
 	slog.Info("new order created", "order", order)
 
-	ui.Toast("success", "Order created", "Order successfully created").Render(ctx, w)
-	ui.OrdersAddContent(true).Render(ctx, w)
+	if err := ui.Toast("success", "Order created", "Order successfully created").Render(ctx, w); err != nil {
+		slog.Error("can't render toast", "error", err)
+	}
+	if err := ui.OrdersAddContent(true).Render(ctx, w); err != nil {
+		slog.Error("can't render orders add content", "error", err)
+	}
 	h.GetOrders(w, r)
 }
 
-func parseOrderCreateForm(r *http.Request) (err error, form ui.Form) {
+func (h Handler) renderOrderFormError(w http.ResponseWriter, ctx context.Context, form ui.Form, toastTitle, toastMsg string) {
+	if toastTitle != "" {
+		if err := ui.Toast("error", toastTitle, toastMsg).Render(ctx, w); err != nil {
+			slog.Error("can't render toast", "error", err)
+		}
+	}
+	ctx = context.WithValue(ctx, ui.FormKey, form)
+	if err := ui.OrdersAddContent(true).Render(ctx, w); err != nil {
+		slog.Error("can't render orders add content", "error", err)
+	}
+}
+
+func parseOrderCreateForm(r *http.Request) (form ui.Form, args db.CreateOrderArg, err error) {
 	form = make(ui.Form)
 
-	// ClientID
-	clientID := strings.TrimSpace(r.PostForm.Get("client_id"))
-	form["client_id"] = ui.FormField{Value: clientID}
-	if val, e := strconv.Atoi(clientID); e != nil || val <= 0 {
-		err = errors.New("client must be selected")
-		form["client_id"] = ui.FormField{Value: clientID, Err: err}
+	setStr := func(key, val string, check func(string) error) {
+		form[key] = ui.FormField{Value: val}
+		if e := check(val); e != nil {
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+		}
 	}
+
+	setInt := func(key, val string, dest *int32, msg string) {
+		form[key] = ui.FormField{Value: val}
+		n, e := strconv.ParseInt(val, 10, 32)
+		if e != nil || n <= 0 {
+			e = errors.New(msg)
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+			return
+		}
+		*dest = int32(n)
+	}
+
+	// ClientID
+	setInt("client_id", strings.TrimSpace(r.PostForm.Get("client_id")), &args.ClientID, "client must be selected")
 
 	// TransportID
-	transportID := strings.TrimSpace(r.PostForm.Get("transport_id"))
-	form["transport_id"] = ui.FormField{Value: transportID}
-	if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
-		err = errors.New("transport must be selected")
-		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
-	}
+	setInt("transport_id", strings.TrimSpace(r.PostForm.Get("transport_id")), &args.TransportID, "transport must be selected")
 
 	// EmployeeID
-	employeeID := strings.TrimSpace(r.PostForm.Get("employee_id"))
-	form["employee_id"] = ui.FormField{Value: employeeID}
-	if val, e := strconv.Atoi(employeeID); e != nil || val <= 0 {
-		err = errors.New("employee must be selected")
-		form["employee_id"] = ui.FormField{Value: employeeID, Err: err}
-	}
+	setInt("employee_id", strings.TrimSpace(r.PostForm.Get("employee_id")), &args.EmployeeID, "employee must be selected")
 
 	// PriceID
-	priceID := strings.TrimSpace(r.PostForm.Get("price_id"))
-	form["price_id"] = ui.FormField{Value: priceID}
-	if val, e := strconv.Atoi(priceID); e != nil || val <= 0 {
-		err = errors.New("price configuration must be selected")
-		form["price_id"] = ui.FormField{Value: priceID, Err: err}
-	}
+	setInt("price_id", strings.TrimSpace(r.PostForm.Get("price_id")), &args.PriceID, "price configuration must be selected")
 
 	// Weight
-	weight := strings.TrimSpace(r.PostForm.Get("weight"))
-	form["weight"] = ui.FormField{Value: weight}
-	if val, e := strconv.Atoi(weight); e != nil || val <= 0 {
-		err = errors.New("weight must be a positive integer")
-		form["weight"] = ui.FormField{Value: weight, Err: err}
-	}
+	setInt("weight", strings.TrimSpace(r.PostForm.Get("weight")), &args.Weight, "weight must be a positive integer")
 
 	// Status
 	status := strings.TrimSpace(r.PostForm.Get("status"))
-	form["status"] = ui.FormField{Value: status}
-	if e := checkOrderStatus(status); e != nil {
-		err = e
-		form["status"] = ui.FormField{Value: status, Err: err}
+	setStr("status", status, checkOrderStatus)
+	args.Status = models.OrderStatus(status)
+
+	// NodeStart
+	setInt("node_start", strings.TrimSpace(r.PostForm.Get("node_start")), &args.NodeIDStart, "start node must be selected")
+
+	// NodeEnd
+	setInt("node_end", strings.TrimSpace(r.PostForm.Get("node_end")), &args.NodeIDEnd, "end node must be selected")
+
+	if err != nil {
+		return form, args, err
 	}
 
-	// NodeStart (required)
-	nodeStart := strings.TrimSpace(r.PostForm.Get("node_start"))
-	form["node_start"] = ui.FormField{Value: nodeStart}
-	if val, e := strconv.Atoi(nodeStart); e != nil || val <= 0 {
-		err = errors.New("start node must be selected")
-		form["node_start"] = ui.FormField{Value: nodeStart, Err: err}
-	}
-
-	// NodeEnd (required)
-	nodeEnd := strings.TrimSpace(r.PostForm.Get("node_end"))
-	form["node_end"] = ui.FormField{Value: nodeEnd}
-	if val, e := strconv.Atoi(nodeEnd); e != nil || val <= 0 {
-		err = errors.New("end node must be selected")
-		form["node_end"] = ui.FormField{Value: nodeEnd, Err: err}
-	}
-
-	return
+	// Grade, Distance, TotalPrice are filled later in the handler
+	return form, args, nil
 }
 
 func (h Handler) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get order data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get order data", "Something went wrong")
 		return
 	}
-	order, err := h.DB.GetOrderByID(r.Context(), int32(id))
+	order, err := h.DB.GetOrderByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve order", "error", err, "id", id)
-		ui.Toast("error", "Can't get order data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get order data", "Not found")
 		return
 	}
 	slog.Debug("retrieve order", "order", order)
@@ -350,193 +329,166 @@ func (h Handler) GetOrderHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := addListsToContext(r.Context(), h.DB)
 	ctx = context.WithValue(ctx, ui.FormKey, ui.Form{}) // empty form
 
-	ui.OrdersViewSheetContent(order).Render(ctx, w)
+	err = ui.OrdersViewSheetContent(order).Render(ctx, w)
+	if err != nil {
+		slog.Error("can't render orders view sheet content", "error", err)
+	}
 }
 
 func (h Handler) UpdateOrderHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect order ID").Render(r.Context(), w)
+		renderToast(w, r, "error", "Error", "Incorrect order ID")
 		return
 	}
 
-	existing, err := h.DB.GetOrderByID(r.Context(), int32(id))
+	existing, err := h.DB.GetOrderByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive order", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		return
 	}
 
-	err, form := parseOrderUpdateForm(r, existing)
+	form, args, err := parseOrderUpdateForm(r, id, existing)
 	ctx := addListsToContext(r.Context(), h.DB)
-
 	if err != nil {
 		slog.Debug("can't update order", "form", form, "err", err)
 		ctx = context.WithValue(ctx, ui.FormKey, form)
-		ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		err = ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		if err != nil {
+			slog.Error("can't render orders view sheet content", "error", err)
+		}
 		return
 	}
 
-	// Convert form values
-	clientID, _ := strconv.ParseInt(form["client_id"].Value, 10, 32)
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
-	employeeID, _ := strconv.ParseInt(form["employee_id"].Value, 10, 32)
-	priceID, _ := strconv.ParseInt(form["price_id"].Value, 10, 32)
-	weight, _ := strconv.ParseInt(form["weight"].Value, 10, 32)
-
-	// Preserve existing grade and total price; distance will be recalculated server‑side
-	grade := existing.Grade
-	distance := existing.Distance // keep current distance until recalculated
-	totalPrice := existing.TotalPrice
-
-	if err := h.DB.UpdateOrder(ctx, db.UpdateOrderArgs{
-		OrderID:     id,
-		ClientID:    int32(clientID),
-		TransportID: int32(transportID),
-		EmployeeID:  int32(employeeID),
-		Grade:       grade,
-		Distance:    distance,
-		Weight:      int32(weight),
-		TotalPrice:  totalPrice,
-		PriceID:     int32(priceID),
-		Status:      models.OrderStatus(form["status"].Value),
-	}); err != nil {
+	if err := h.DB.UpdateOrder(ctx, args); err != nil {
 		slog.Error("can't update order", "error", err, "id", id)
-		ui.Toast("error", "Internal error", "something went wrong").Render(ctx, w)
-		ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		err = ui.Toast("error", "Internal error", "something went wrong").Render(ctx, w)
+		if err != nil {
+			slog.Error("can't render toast", "error", err)
+		}
+		err = ui.OrdersViewSheetContent(existing).Render(ctx, w)
+		if err != nil {
+			slog.Error("can't render orders view sheet content", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("update order", "form data", form)
-	ui.Toast("success", "Order updated", "Order successfully updated").Render(ctx, w)
+	err = ui.Toast("success", "Order updated", "Order successfully updated").Render(ctx, w)
+	if err != nil {
+		slog.Error("can't render toast", "error", err)
+	}
 	h.GetOrderHandler(w, r)
 	h.GetOrders(w, r)
 }
 
-func parseOrderUpdateForm(r *http.Request, existing models.Order) (err error, form ui.Form) {
+func parseOrderUpdateForm(r *http.Request, id int32, existing models.Order) (form ui.Form, args db.UpdateOrderArgs, err error) {
 	form = make(ui.Form)
 
-	// Helper to get value or default
-	getValue := func(key string) string {
-		return r.PostForm.Get(key)
+	setStr := func(key, val string, check func(string) error) {
+		form[key] = ui.FormField{Value: val}
+		if e := check(val); e != nil {
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+		}
+	}
+
+	setInt := func(key, val string, dest *int32, msg string) {
+		form[key] = ui.FormField{Value: val}
+		n, e := strconv.ParseInt(val, 10, 32)
+		if e != nil || n <= 0 {
+			e = errors.New(msg)
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+			return
+		}
+		*dest = int32(n)
 	}
 
 	// ClientID
-	clientID := getValue("client_id")
-	form["client_id"] = ui.FormField{Value: clientID}
-	if val, e := strconv.Atoi(clientID); e != nil || val <= 0 {
-		err = errors.New("client must be selected")
-		form["client_id"] = ui.FormField{Value: clientID, Err: err}
-	}
+	setInt("client_id", r.PostForm.Get("client_id"), &args.ClientID, "client must be selected")
 
 	// TransportID
-	transportID := getValue("transport_id")
-	form["transport_id"] = ui.FormField{Value: transportID}
-	if val, e := strconv.Atoi(transportID); e != nil || val <= 0 {
-		err = errors.New("transport must be selected")
-		form["transport_id"] = ui.FormField{Value: transportID, Err: err}
-	}
+	setInt("transport_id", r.PostForm.Get("transport_id"), &args.TransportID, "transport must be selected")
 
 	// EmployeeID
-	employeeID := getValue("employee_id")
-	form["employee_id"] = ui.FormField{Value: employeeID}
-	if val, e := strconv.Atoi(employeeID); e != nil || val <= 0 {
-		err = errors.New("employee must be selected")
-		form["employee_id"] = ui.FormField{Value: employeeID, Err: err}
-	}
+	setInt("employee_id", r.PostForm.Get("employee_id"), &args.EmployeeID, "employee must be selected")
 
 	// PriceID
-	priceID := getValue("price_id")
-	form["price_id"] = ui.FormField{Value: priceID}
-	if val, e := strconv.Atoi(priceID); e != nil || val <= 0 {
-		err = errors.New("price configuration must be selected")
-		form["price_id"] = ui.FormField{Value: priceID, Err: err}
-	}
+	setInt("price_id", r.PostForm.Get("price_id"), &args.PriceID, "price configuration must be selected")
 
 	// Weight
-	weight := getValue("weight")
-	form["weight"] = ui.FormField{Value: weight}
-	if val, e := strconv.Atoi(weight); e != nil || val <= 0 {
-		err = errors.New("weight must be a positive integer")
-		form["weight"] = ui.FormField{Value: weight, Err: err}
-	}
+	setInt("weight", r.PostForm.Get("weight"), &args.Weight, "weight must be a positive integer")
 
 	// Status
-	status := getValue("status")
-	form["status"] = ui.FormField{Value: status}
-	if e := checkOrderStatus(status); e != nil {
-		err = e
-		form["status"] = ui.FormField{Value: status, Err: err}
+	status := r.PostForm.Get("status")
+	setStr("status", status, checkOrderStatus)
+	args.Status = models.OrderStatus(status)
+
+	// NodeStart (validated only)
+	setInt("node_start", r.PostForm.Get("node_start"), new(int32), "start node must be selected")
+
+	// NodeEnd (validated only)
+	setInt("node_end", r.PostForm.Get("node_end"), new(int32), "end node must be selected")
+
+	if err != nil {
+		return form, args, err
 	}
 
-	// NodeStart (required)
-	nodeStart := getValue("node_start")
-	form["node_start"] = ui.FormField{Value: nodeStart}
-	if val, e := strconv.Atoi(nodeStart); e != nil || val <= 0 {
-		err = errors.New("start node must be selected")
-		form["node_start"] = ui.FormField{Value: nodeStart, Err: err}
-	}
+	// Preserve existing grade and total price; distance will be recalculated server-side
+	args.OrderID = id
+	args.Grade = existing.Grade
+	args.Distance = existing.Distance
+	args.TotalPrice = existing.TotalPrice
 
-	// NodeEnd (required)
-	nodeEnd := getValue("node_end")
-	form["node_end"] = ui.FormField{Value: nodeEnd}
-	if val, e := strconv.Atoi(nodeEnd); e != nil || val <= 0 {
-		err = errors.New("end node must be selected")
-		form["node_end"] = ui.FormField{Value: nodeEnd, Err: err}
-	}
-
-	return
+	return form, args, nil
 }
-
-// ============================================================================
-// Delete
-// ============================================================================
 
 func (h Handler) DeleteOrderHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
-	if err := h.DB.SoftDeleteOrder(r.Context(), int32(id)); err != nil {
+	if err := h.DB.SoftDeleteOrder(r.Context(), id); err != nil {
 		slog.Error("can't delete order", "error", err, "id", id)
-		ui.Toast("error", "Can't delete order", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete order", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting order", "orderID", id)
-	ui.Toast("success", "Deleted", "Order successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Order successfully deleted")
 	h.GetOrders(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeleteOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete orders", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete orders", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete orders", "No orders selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete orders", "No orders selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render toast", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse order id", "error", err, "id", idStr)
 			continue
@@ -551,10 +503,6 @@ func (h Handler) BulkDeleteOrdersHandler(w http.ResponseWriter, r *http.Request)
 	h.GetOrders(w, r)
 }
 
-// ============================================================================
-// Additional Handlers (optional)
-// ============================================================================
-
 func (h Handler) GetOrderTransportsHandler(w http.ResponseWriter, r *http.Request) {
 	// To be implemented if needed
 }
@@ -562,10 +510,6 @@ func (h Handler) GetOrderTransportsHandler(w http.ResponseWriter, r *http.Reques
 func (h Handler) AssignOrderTransportsHandler(w http.ResponseWriter, r *http.Request) {
 	// To be implemented if needed
 }
-
-// ============================================================================
-// Validation Helpers
-// ============================================================================
 
 func checkOrderStatus(status string) error {
 	switch models.OrderStatus(status) {
@@ -578,15 +522,14 @@ func checkOrderStatus(status string) error {
 	}
 }
 
-func int32Ptr(i int32) *int32 {
-	return &i
-}
-
 func (h Handler) GetOrderAddForm(w http.ResponseWriter, r *http.Request) {
 	ctx := addListsToContext(r.Context(), h.DB)
 	ctx = context.WithValue(ctx, ui.FormKey, ui.Form{})
 
-	ui.OrdersAddContent(true).Render(ctx, w)
+	err := ui.OrdersAddContent(true).Render(ctx, w)
+	if err != nil {
+		slog.Error("can't render order add form", "error", err)
+	}
 }
 
 func (h Handler) GetOrderFilterForm(w http.ResponseWriter, r *http.Request) {
@@ -594,16 +537,34 @@ func (h Handler) GetOrderFilterForm(w http.ResponseWriter, r *http.Request) {
 	filter := parseOrderFilters(r)
 	ctx = context.WithValue(ctx, ui.FilterKey, filter)
 
-	ui.OrdersFilter().Render(ctx, w)
+	err := ui.OrdersFilter().Render(ctx, w)
+	if err != nil {
+		slog.Error("can't render order filter form", "error", err)
+	}
 }
 
 // addListsToContext fetches all reference lists and stores them in the context.
 func addListsToContext(ctx context.Context, db db.DB) context.Context {
-	clients, _ := db.ListClients(ctx)
-	employees, _ := db.ListFreeDrivers(ctx)
-	transports, _ := db.ListFreeTransports(ctx)
-	prices, _ := db.ListPrices(ctx)
-	nodes, _ := db.ListNodes(ctx)
+	clients, err := db.ListClients(ctx)
+	if err != nil {
+		slog.Error("can't fetch clients", "error", err)
+	}
+	employees, err := db.ListFreeDrivers(ctx)
+	if err != nil {
+		slog.Error("can't fetch employees", "error", err)
+	}
+	transports, err := db.ListFreeTransports(ctx)
+	if err != nil {
+		slog.Error("can't fetch transports", "error", err)
+	}
+	prices, err := db.ListPrices(ctx)
+	if err != nil {
+		slog.Error("can't fetch prices", "error", err)
+	}
+	nodes, err := db.ListNodes(ctx)
+	if err != nil {
+		slog.Error("can't fetch nodes", "error", err)
+	}
 
 	ctx = context.WithValue(ctx, ui.ClientsKey, clients)
 	ctx = context.WithValue(ctx, ui.EmployeesKey, employees)
@@ -647,10 +608,13 @@ func (h *Handler) OrdersExport(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", `attachment; filename="orders_report.xlsx"`)
-	w.Write(bytes)
+	_, err = w.Write(bytes)
+	if err != nil {
+		slog.Error("can't write report to response", "error", err)
+	}
 }
 
-// fetchAllOrders — получает ВСЕ заказы (обходит пагинацию)
+// fetchAllOrders returns all orders without pagination
 func (h *Handler) fetchAllOrders(ctx context.Context, filter models.OrderFilter) ([]models.Order, error) {
 	var all []models.Order
 	page := int32(1)
@@ -695,6 +659,7 @@ func (h *Handler) GetOrdersForReport(ctx context.Context, filter models.OrderFil
 	}
 	return filtered, nil
 }
+
 // aggregateStats — основная функция агрегации
 func aggregateStats(orders []models.Order, period ReportPeriod) OrderStats {
 	stats := OrderStats{
@@ -756,4 +721,3 @@ func aggregateStats(orders []models.Order, period ReportPeriod) OrderStats {
 
 	return stats
 }
-

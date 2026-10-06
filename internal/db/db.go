@@ -46,8 +46,8 @@ func New(ctx context.Context, cfg config.DBConfig) (DB, error) {
 		cfg:     cfg,
 		pool:    pool,
 	}
-	db.initDB()
-	return db, nil
+	err = db.initDB()
+	return db, err
 }
 
 func getConnStr(cfg config.DBConfig) string {

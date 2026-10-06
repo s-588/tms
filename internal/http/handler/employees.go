@@ -24,14 +24,17 @@ func (h Handler) GetEmployeesPage(w http.ResponseWriter, r *http.Request) {
 	page := parsePagination(r)
 	filter := parseEmployeeFilters(r)
 
-	slog.Debug("getting get employees","page",page,"filter",filter)
+	slog.Debug("getting get employees", "page", page, "filter", filter)
 	employees, total, err := h.DB.GetEmployees(r.Context(), 1, models.EmployeeFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of employees", "error", err)
-		ui.Toast("error", "Can't render employees page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render employees page", "Something went wrong")
 		return
 	}
-	ui.EmployeesPage(employees, page, total, filter).Render(r.Context(), w)
+	err = ui.EmployeesPage(employees, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 // GetEmployees returns the employees table (for HTMX partial updates).
@@ -42,18 +45,17 @@ func (h Handler) GetEmployees(w http.ResponseWriter, r *http.Request) {
 	employees, total, err := h.DB.GetEmployees(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of employees", "error", err)
-		ui.Toast("error", "Can't get employees data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get employees data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve employees from database", "filter", filter, "page", page,
 		"total pages", total, "total employees", len(employees))
-	ui.EmployeesTable(employees, page, total, filter, true).Render(r.Context(), w)
+	err = ui.EmployeesTable(employees, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
-
-// ============================================================================
-// Filter Parsing
-// ============================================================================
 
 func parseEmployeeFilters(r *http.Request) models.EmployeeFilter {
 	filter := models.EmployeeFilter{}
@@ -100,14 +102,17 @@ func parseEmployeeFilters(r *http.Request) models.EmployeeFilter {
 
 func (h Handler) CreateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parseEmployeeCreateForm(r)
-	if hasError != nil {
+	form, err := parseEmployeeCreateForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding employee", "data", form)
-		ui.EmployeesAddContent(form).Render(r.Context(), w)
+		err := ui.EmployeesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
@@ -127,28 +132,31 @@ func (h Handler) CreateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 		LicenseExpiration: licenseExpiration,
 	}
 
-	_, err := h.DB.CreateEmployee(r.Context(), db.CreateEmployeeArgs{
+	_, err = h.DB.CreateEmployee(r.Context(), db.CreateEmployeeArgs{
 		LicenseExpiration: emp.LicenseExpiration,
-		LicenseIssued: emp.LicenseIssued,
-		Salary: emp.Salary,
-		HireDate: emp.HireDate,
-		JobTitle: emp.JobTitle,
-		Status: emp.Status,
-		Name: emp.Name,
+		LicenseIssued:     emp.LicenseIssued,
+		Salary:            emp.Salary,
+		HireDate:          emp.HireDate,
+		JobTitle:          emp.JobTitle,
+		Status:            emp.Status,
+		Name:              emp.Name,
 	})
 	if err != nil {
 		slog.Error("can't create employee", "error", err)
-		ui.Toast("error", "Can't create employee", "Something went wrong").Render(r.Context(), w)
-		ui.EmployeesAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create employee", "Something went wrong")
+		err = ui.EmployeesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("adding new employee", "data", form)
-	ui.Toast("success", "Employee created", "Employee successfully created").Render(r.Context(), w)
-	// h.GetEmployees(w, r) // optionally refresh table
+	renderToast(w, r, "success", "Employee created", "Employee successfully created")
+	h.GetEmployees(w, r)
 }
 
-func parseEmployeeCreateForm(r *http.Request) (err error, form ui.Form) {
+func parseEmployeeCreateForm(r *http.Request) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	name := strings.TrimSpace(r.PostForm.Get("name"))
@@ -209,218 +217,209 @@ func parseEmployeeCreateForm(r *http.Request) (err error, form ui.Form) {
 	return
 }
 
-// ============================================================================
-// Read (single employee for sheet)
-// ============================================================================
-
 func (h Handler) GetEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get employee data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get employee data", "Something went wrong")
 		return
 	}
 	employee, err := h.DB.GetEmployeeByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve employee", "error", err, "id", id)
-		ui.Toast("error", "Can't get employee data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get employee data", "Not found")
 		return
 	}
 	slog.Debug("retrieve employee", "employee", employee)
-	ui.EmployeesViewSheetContent(employee, ui.Form{}).Render(r.Context(), w)
+	err = ui.EmployeesViewSheetContent(employee, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
-
-// ============================================================================
-// Update
-// ============================================================================
 
 func (h Handler) UpdateEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect employee ID").Render(r.Context(), w)
-		h.GetEmployeeHandler(w,r)
+		renderToast(w, r, "error", "Error", "Incorrect employee ID")
+		h.GetEmployeeHandler(w, r)
 		return
 	}
 
 	existing, err := h.DB.GetEmployeeByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive employee", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
-		h.GetEmployeeHandler(w,r)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
+		h.GetEmployeeHandler(w, r)
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
-		h.GetEmployeeHandler(w,r)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
+		h.GetEmployeeHandler(w, r)
 		return
 	}
 
-	err, form := parseEmployeeUpdateForm(r, existing)
+	form, args, err := parseEmployeeUpdateForm(r, existing)
 	if err != nil {
 		slog.Debug("can't update employee", "form", form, "err", err)
-		ui.EmployeesViewSheetContent(existing, form).Render(r.Context(), w)
+		if renderErr := ui.EmployeesViewSheetContent(existing, form).Render(r.Context(), w); renderErr != nil {
+			slog.Error("can't render response", "error", renderErr)
+		}
 		return
 	}
 
-	// Convert form values
-	hireDate, _ := time.Parse("2006-01-02", form["hire_date"].Value)
-	salary, _ := decimal.NewFromString(form["salary"].Value)
-	licenseIssued, _ := time.Parse("2006-01-02", form["license_issued"].Value)
-	licenseExpiration, _ := time.Parse("2006-01-02", form["license_expiration"].Value)
-
-	if err := h.DB.UpdateEmployee(r.Context(), db.UpdateEmployeeArgs{
-		EmployeeID: id,
-		Name: form["name"].Value,
-		Status: models.EmployeeStatus(form["status"].Value),
-		JobTitle: models.EmployeeJobTitle(form["job_title"].Value),
-		HireDate: hireDate,
-		Salary: salary,
-		LicenseIssued: licenseIssued,
-		LicenseExpiration: licenseExpiration,
-	}); err != nil {
+	if err := h.DB.UpdateEmployee(r.Context(), args); err != nil {
 		slog.Error("can't update employee", "error", err, "id", id)
-		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
-		h.GetEmployeeHandler(w,r)
+		renderToast(w, r, "error", "Internal error", "something went wrong")
+		h.GetEmployeeHandler(w, r)
 		return
 	}
 
 	slog.Debug("update employee", "form data", form)
-	ui.Toast("success", "Employee updated", "Employee successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Employee updated", "Employee successfully updated")
 	h.GetEmployeeHandler(w, r)
 	h.GetEmployees(w, r)
 }
 
-func parseEmployeeUpdateForm(r *http.Request, existing models.Employee) (err error, form ui.Form) {
+//nolint:funlen // function is clear and there is no need to divide in multiple functions.
+func parseEmployeeUpdateForm(r *http.Request, existing models.Employee) (form ui.Form, args db.UpdateEmployeeArgs, err error) {
 	form = make(ui.Form)
 
+	// helpers
+	setStr := func(key, val string, check func(string) error) {
+		form[key] = ui.FormField{Value: val}
+		if e := check(val); e != nil {
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+		}
+	}
+	setDate := func(key, val string, dest *time.Time, msg string) {
+		form[key] = ui.FormField{Value: val}
+		t, e := time.Parse("2006-01-02", val)
+		if e != nil {
+			e = errors.New(msg)
+			form[key] = ui.FormField{Value: val, Err: e}
+			err = e
+			return
+		}
+		*dest = t
+	}
+
+	// Name
 	name := strings.TrimSpace(r.PostForm.Get("name"))
 	if name == "" {
 		name = existing.Name
 	}
-	form["name"] = ui.FormField{Value: name}
-	if err = checkEmployeeName(name); err != nil {
-		form["name"] = ui.FormField{Value: name, Err: err}
-	}
+	setStr("name", name, checkEmployeeName)
+	args.Name = name
 
+	// Status
 	status := r.PostForm.Get("status")
 	if status == "" {
 		status = string(existing.Status)
 	}
-	form["status"] = ui.FormField{Value: status}
-	if err = checkEmployeeStatus(status); err != nil {
-		form["status"] = ui.FormField{Value: status, Err: err}
-	}
+	setStr("status", status, checkEmployeeStatus)
+	args.Status = models.EmployeeStatus(status)
 
+	// Job title
 	job := r.PostForm.Get("job_title")
 	if job == "" {
 		job = string(existing.JobTitle)
 	}
-	form["job_title"] = ui.FormField{Value: job}
-	if err = checkEmployeeJobTitle(job); err != nil {
-		form["job_title"] = ui.FormField{Value: job, Err: err}
-	}
+	setStr("job_title", job, checkEmployeeJobTitle)
+	args.JobTitle = models.EmployeeJobTitle(job)
 
+	// Hire date
 	hireDateStr := r.PostForm.Get("hire_date")
 	if hireDateStr == "" {
 		hireDateStr = existing.HireDate.Format("2006-01-02")
 	}
-	form["hire_date"] = ui.FormField{Value: hireDateStr}
-	if hireDate, errHire := time.Parse("2006-01-02", hireDateStr); errHire != nil {
-		err = errors.New("invalid hire date (use YYYY-MM-DD)")
-		form["hire_date"] = ui.FormField{Value: hireDate.String(), Err: err}
-	}
+	setDate("hire_date", hireDateStr, &args.HireDate, "invalid hire date (use YYYY-MM-DD)")
 
+	// Salary
 	salaryStr := r.PostForm.Get("salary")
 	if salaryStr == "" {
 		salaryStr = existing.Salary.String()
 	}
 	form["salary"] = ui.FormField{Value: salaryStr}
-	salary, errSalary := decimal.NewFromString(salaryStr)
-	if errSalary != nil || salary.IsNegative() {
-		err = errors.New("invalid salary (positive number expected)")
-		form["salary"] = ui.FormField{Value: salaryStr, Err: err}
+	salary, e := decimal.NewFromString(salaryStr)
+	if e != nil || salary.IsNegative() {
+		e = errors.New("invalid salary (positive number expected)")
+		form["salary"] = ui.FormField{Value: salaryStr, Err: e}
+		err = e
+	}
+	args.Salary = salary
+
+	// License issued / expiration
+	issuedStr := r.PostForm.Get("license_issued")
+	if issuedStr == "" {
+		issuedStr = existing.LicenseIssued.Format("2006-01-02")
+	}
+	setDate("license_issued", issuedStr, &args.LicenseIssued, "invalid license issued date (use YYYY-MM-DD)")
+
+	expStr := r.PostForm.Get("license_expiration")
+	if expStr == "" {
+		expStr = existing.LicenseExpiration.Format("2006-01-02")
+	}
+	setDate("license_expiration", expStr, &args.LicenseExpiration, "invalid license expiration date (use YYYY-MM-DD)")
+
+	// Cross-field validations (only when both dates parsed cleanly)
+	if form["license_issued"].Err == nil && form["license_expiration"].Err == nil {
+		if args.LicenseExpiration.Before(args.LicenseIssued) {
+			e := errors.New("license expiration must be after issue date")
+			form["license_expiration"] = ui.FormField{Value: expStr, Err: e}
+			err = e
+		}
+		if time.Now().After(args.LicenseExpiration) && args.Status == models.EmployeeStatusAssigned {
+			e := errors.New("employee with expired license cannot be assigned")
+			form["status"] = ui.FormField{Value: status, Err: e}
+			err = e
+		}
 	}
 
-	licenseIssuedStr := r.PostForm.Get("license_issued")
-	if licenseIssuedStr == "" {
-		licenseIssuedStr = existing.LicenseIssued.Format("2006-01-02")
-	}
-	form["license_issued"] = ui.FormField{Value: licenseIssuedStr}
-	licenseIssued, errIssued := time.Parse("2006-01-02", licenseIssuedStr)
-	if errIssued != nil {
-		err = errors.New("invalid license issued date (use YYYY-MM-DD)")
-		form["license_issued"] = ui.FormField{Value: licenseIssuedStr, Err: err}
-	}
-
-	licenseExpStr := r.PostForm.Get("license_expiration")
-	if licenseExpStr == "" {
-		licenseExpStr = existing.LicenseExpiration.Format("2006-01-02")
-	}
-	form["license_expiration"] = ui.FormField{Value: licenseExpStr}
-	licenseExp, errExp := time.Parse("2006-01-02", licenseExpStr)
-	if errExp != nil {
-		err = errors.New("invalid license expiration date (use YYYY-MM-DD)")
-		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
-	}
-
-	if err == nil && licenseExp.Before(licenseIssued) {
-		err = errors.New("license expiration must be after issue date")
-		form["license_expiration"] = ui.FormField{Value: licenseExpStr, Err: err}
-	}
-
-	if time.Now().After(licenseExp) && models.EmployeeStatus(status) == models.EmployeeStatusAssigned{
-		err = errors.New("employee with expired license cannot be assigned")
-		form["status"] = ui.FormField{Value: status, Err: err}
-	}
-
-	return
+	return form, args, err
 }
-
-// ============================================================================
-// Delete
-// ============================================================================
 
 func (h Handler) DeleteEmployeeHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
+		h.GetEmployees(w, r)
 		return
 	}
 
 	if err := h.DB.SoftDeleteEmployee(r.Context(), id); err != nil {
 		slog.Error("can't delete employee", "error", err, "id", id)
-		ui.Toast("error", "Can't delete employee", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete employee", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting employee", "employeeID", id)
-	ui.Toast("success", "Deleted", "Employee successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Employee successfully deleted")
 	h.GetEmployees(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeleteEmployeesHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete employees", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete employees", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete employees", "No employees selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete employees", "No employees selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.ParseInt(idStr,10,32)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse employee id", "error", err, "id", idStr)
 			continue
@@ -434,17 +433,6 @@ func (h Handler) BulkDeleteEmployeesHandler(w http.ResponseWriter, r *http.Reque
 
 	h.GetEmployees(w, r)
 }
-
-// ============================================================================
-// Export (placeholder)
-// ============================================================================
-// func (h Handler) ExportEmployeesHandler(w http.ResponseWriter, r *http.Request) {
-// 	// To be implemented
-// }
-
-// ============================================================================
-// Validation Helpers
-// ============================================================================
 
 func checkEmployeeName(name string) error {
 	if utf8.RuneCountInString(name) < 2 {

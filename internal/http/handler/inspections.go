@@ -24,10 +24,13 @@ func (h Handler) GetInspectionsPage(w http.ResponseWriter, r *http.Request) {
 	inspections, total, err := h.DB.GetInspections(r.Context(), 1, models.InspectionFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of inspections", "error", err)
-		ui.Toast("error", "Can't render inspections page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render inspections page", "Something went wrong")
 		return
 	}
-	ui.InspectionsPage(inspections, page, total, filter).Render(r.Context(), w)
+	err = ui.InspectionsPage(inspections, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 func (h Handler) GetInspections(w http.ResponseWriter, r *http.Request) {
@@ -37,25 +40,27 @@ func (h Handler) GetInspections(w http.ResponseWriter, r *http.Request) {
 	inspections, total, err := h.DB.GetInspections(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of inspections", "error", err)
-		ui.Toast("error", "Can't get inspections data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get inspections data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve inspections from database", "filter", filter, "page", page,
 		"total pages", total, "total inspections", len(inspections))
-	ui.InspectionsTable(inspections, page, total, filter, true).Render(r.Context(), w)
+	err = ui.InspectionsTable(inspections, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
-
-// ============================================================================
-// Filter Parsing
-// ============================================================================
 
 func parseInspectionFilters(r *http.Request) models.InspectionFilter {
 	filter := models.InspectionFilter{}
 	q := r.URL.Query()
 
 	if transportID := q.Get("transport_id"); transportID != "" {
-		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
+		val, err := strconv.ParseInt(transportID, 10, 32)
+		if err != nil {
+			slog.Error("can't parse transport id", "error", err)
+		} else {
 			filter.TransportID.SetValue(int32(val))
 		}
 	}
@@ -97,45 +102,48 @@ func parseInspectionFilters(r *http.Request) models.InspectionFilter {
 	return filter
 }
 
-// ============================================================================
-// Create
-// ============================================================================
-
 func (h Handler) CreateInspectionHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parseInspectionCreateForm(r)
-	if hasError != nil {
+	form, err := parseInspectionCreateForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding inspection", "data", form)
-		ui.InspectionsAddContent(form).Render(r.Context(), w)
+		err = ui.InspectionsAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
 	inspectionDate, _ := time.Parse("2006-01-02", form["inspection_date"].Value)
 	expirationDate, _ := time.Parse("2006-01-02", form["inspection_expiration"].Value)
 
-	_, err := h.DB.CreateInspection(r.Context(),db.CreateInspectionArgs{
+	_, err = h.DB.CreateInspection(r.Context(), db.CreateInspectionArgs{
 		TransportID:          int32(transportID),
 		InspectionDate:       inspectionDate,
 		InspectionExpiration: expirationDate,
-		Status:               models.InspectionStatus(form["status"].Value)})
+		Status:               models.InspectionStatus(form["status"].Value),
+	})
 	if err != nil {
 		slog.Error("can't create inspection", "error", err)
-		ui.Toast("error", "Can't create inspection", "Something went wrong").Render(r.Context(), w)
-		ui.InspectionsAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create inspection", "Something went wrong")
+		err = ui.InspectionsAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("adding new inspection", "data", form)
-	ui.Toast("success", "Inspection created", "Inspection successfully created").Render(r.Context(), w)
+	renderToast(w, r, "success", "Inspection created", "Inspection successfully created")
 	h.GetInspections(w, r)
 }
 
-func parseInspectionCreateForm(r *http.Request) (err error, form ui.Form) {
+func parseInspectionCreateForm(r *http.Request) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	// Transport ID
@@ -211,74 +219,76 @@ func (h Handler) GetInspectionHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get inspection data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get inspection data", "Something went wrong")
 		return
 	}
-	inspection, err := h.DB.GetInspectionByID(r.Context(), int32(id))
+	inspection, err := h.DB.GetInspectionByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve inspection", "error", err, "id", id)
-		ui.Toast("error", "Can't get inspection data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get inspection data", "Not found")
 		return
 	}
 	slog.Debug("retrieve inspection", "inspection", inspection)
-	ui.InspectionsViewSheetContent(inspection, ui.Form{}).Render(r.Context(), w)
+	err = ui.InspectionsViewSheetContent(inspection, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
-
-// ============================================================================
-// Update
-// ============================================================================
 
 func (h Handler) UpdateInspectionHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect inspection ID").Render(r.Context(), w)
+		renderToast(w, r, "error", "Error", "Incorrect inspection ID")
 		return
 	}
 
-	existing, err := h.DB.GetInspectionByID(r.Context(), int32(id))
+	existing, err := h.DB.GetInspectionByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive inspection", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		return
 	}
 
-	err, form := parseInspectionUpdateForm(r, existing)
+	form, err := parseInspectionUpdateForm(r, existing)
 	if err != nil {
 		slog.Debug("can't update inspection", "form", form, "err", err)
-		ui.InspectionsViewSheetContent(existing, form).Render(r.Context(), w)
+		err = ui.InspectionsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
 	inspectionDate, _ := time.Parse("2006-01-02", form["inspection_date"].Value)
 	expirationDate, _ := time.Parse("2006-01-02", form["inspection_expiration"].Value)
 
 	if err := h.DB.UpdateInspection(r.Context(), db.UpdateInspectionArgs{
-		InspectionID:         int32(id),
+		InspectionID:         id,
 		TransportID:          int32(transportID),
 		InspectionDate:       inspectionDate,
 		InspectionExpiration: expirationDate,
 		Status:               models.InspectionStatus(form["status"].Value),
 	}); err != nil {
 		slog.Error("can't update inspection", "error", err, "id", id)
-		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "something went wrong")
 		return
 	}
 
 	slog.Debug("update inspection", "form data", form)
-	ui.Toast("success", "Inspection updated", "Inspection successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Inspection updated", "Inspection successfully updated")
 	h.GetInspectionHandler(w, r)
 	h.GetInspections(w, r)
 }
 
-func parseInspectionUpdateForm(r *http.Request, existing models.Inspection) (err error, form ui.Form) {
+func parseInspectionUpdateForm(r *http.Request, existing models.Inspection) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	getValue := func(key string, defaultValue string) string {
@@ -353,48 +363,43 @@ func parseInspectionUpdateForm(r *http.Request, existing models.Inspection) (err
 	return
 }
 
-// ============================================================================
-// Delete
-// ============================================================================
-
 func (h Handler) DeleteInspectionHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
-	if err := h.DB.SoftDeleteInspection(r.Context(), int32(id)); err != nil {
+	if err := h.DB.SoftDeleteInspection(r.Context(), id); err != nil {
 		slog.Error("can't delete inspection", "error", err, "id", id)
-		ui.Toast("error", "Can't delete inspection", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete inspection", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting inspection", "inspectionID", id)
-	ui.Toast("success", "Deleted", "Inspection successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Inspection successfully deleted")
 	h.GetInspections(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeleteInspectionsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete inspections", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete inspections", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete inspections", "No inspections selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete inspections", "No inspections selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse inspection id", "error", err, "id", idStr)
 			continue
@@ -404,14 +409,11 @@ func (h Handler) BulkDeleteInspectionsHandler(w http.ResponseWriter, r *http.Req
 
 	if err := h.DB.BulkSoftDeleteInspections(r.Context(), ids); err != nil {
 		slog.Error("can't delete inspections batch", "error", err)
+		renderToast(w, r, "error", "Can't delete inspections", "Something went wrong")
 	}
 
 	h.GetInspections(w, r)
 }
-
-// ============================================================================
-// Validation Helpers
-// ============================================================================
 
 func checkInspectionStatus(status string) error {
 	switch models.InspectionStatus(status) {

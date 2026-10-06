@@ -135,14 +135,14 @@ func (f OrderFilter) GetSortOrder() string {
 
 // TransportFilter
 type TransportFilter struct {
-    Model              Optional[string]
-    LicensePlate       Optional[string]
-    PayloadCapacityMin Optional[int32]
-    PayloadCapacityMax Optional[int32]
-    FuelConsumptionMin Optional[int32]
-    FuelConsumptionMax Optional[int32]
-    SortBy             Optional[string]
-    SortOrder          Optional[string]
+	Model              Optional[string]
+	LicensePlate       Optional[string]
+	PayloadCapacityMin Optional[int32]
+	PayloadCapacityMax Optional[int32]
+	FuelConsumptionMin Optional[int32]
+	FuelConsumptionMax Optional[int32]
+	SortBy             Optional[string]
+	SortOrder          Optional[string]
 }
 
 func (f TransportFilter) GetSortBy() string {
@@ -186,8 +186,8 @@ func (f PriceFilter) GetSortOrder() string {
 
 // NodeFilter
 type NodeFilter struct {
-	Name     Optional[string]
-	SortBy   Optional[string]
+	Name      Optional[string]
+	SortBy    Optional[string]
 	SortOrder Optional[string]
 }
 

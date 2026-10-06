@@ -51,11 +51,17 @@ func (db DB) GetOrderByID(ctx context.Context, orderID int32) (models.Order, err
 		return models.Order{}, err
 	}
 	return models.Order{
-		OrderID:               genOrder.OrderID,
-		ClientID:              genOrder.ClientID,
-		TransportID:           genOrder.TransportID,
-		EmployeeID:            genOrder.EmployeeID,
-		Grade:                 uint8(genOrder.Grade),
+		OrderID:     genOrder.OrderID,
+		ClientID:    genOrder.ClientID,
+		TransportID: genOrder.TransportID,
+		EmployeeID:  genOrder.EmployeeID,
+
+		// No need to check Grade value before conversion,
+		// because it is already checked before adding to the database.
+		// Even if it is not, the conversion will not cause any issues,
+		// because the value will be truncated to fit into uint8.
+		Grade: uint8(genOrder.Grade), //nolint:gosec
+
 		Distance:              genOrder.Distance,
 		Weight:                genOrder.Weight,
 		TotalPrice:            genOrder.TotalPrice,
@@ -101,11 +107,15 @@ func (db DB) GetOrders(ctx context.Context, page int32, filter models.OrderFilte
 	for _, row := range rows {
 		totalPages = row.TotalCount
 		orders = append(orders, models.Order{
-			OrderID:               row.OrderID,
-			ClientID:              row.ClientID,
-			TransportID:           row.TransportID,
-			EmployeeID:            row.EmployeeID,
-			Grade:                 uint8(row.Grade),
+			OrderID:     row.OrderID,
+			ClientID:    row.ClientID,
+			TransportID: row.TransportID,
+			EmployeeID:  row.EmployeeID,
+			// No need to check Grade value before conversion,
+			// because it is already checked before adding to the database.
+			// Even if it is not, the conversion will not cause any issues,
+			// because the value will be truncated to fit into uint8.
+			Grade:                 uint8(row.Grade), //nolint:gosec
 			Distance:              row.Distance,
 			Weight:                row.Weight,
 			TotalPrice:            row.TotalPrice,

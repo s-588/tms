@@ -1,7 +1,6 @@
 package http
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 )
@@ -9,6 +8,6 @@ import (
 func LogMiddleware(next http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
-		slog.Info(fmt.Sprintf("%s %s %s", r.Method, r.URL.String(), r.RemoteAddr))
+		slog.Info("", "method", r.Method, "url", r.URL.String(), "remote_addr", r.RemoteAddr)
 	}
 }

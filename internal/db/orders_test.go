@@ -7,8 +7,15 @@ import (
 
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/testutil"
 	"github.com/shopspring/decimal"
 )
+
+func TestDB_Orders(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+
+	testOrders(t, database)
+}
 
 func testOrders(t *testing.T, database db.DB) {
 	ctx := context.Background()

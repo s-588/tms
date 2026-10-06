@@ -23,10 +23,14 @@ func (h Handler) GetTransportsPage(w http.ResponseWriter, r *http.Request) {
 	transports, total, err := h.DB.GetTransports(r.Context(), 1, models.TransportFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of transports", "error", err)
-		ui.Toast("error", "Can't render transports page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render transports page", "Something went wrong")
 		return
 	}
-	ui.TransportsPage(transports, page, total, filter).Render(r.Context(), w)
+	err = ui.TransportsPage(transports, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render transports page", "error", err)
+		renderToast(w, r, "error", "Can't render transports page", "Something went wrong")
+	}
 }
 
 func (h Handler) GetTransports(w http.ResponseWriter, r *http.Request) {
@@ -36,13 +40,17 @@ func (h Handler) GetTransports(w http.ResponseWriter, r *http.Request) {
 	transports, total, err := h.DB.GetTransports(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of transports", "error", err)
-		ui.Toast("error", "Can't get transports data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get transports data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve transports from database", "filter", filter, "page", page,
 		"total pages", total, "total transports", len(transports))
-	ui.TransportsTable(transports, page, total, filter, true).Render(r.Context(), w)
+	err = ui.TransportsTable(transports, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render transports table", "error", err)
+		renderToast(w, r, "error", "Can't render transports table", "Something went wrong")
+	}
 }
 
 // ============================================================================
@@ -60,22 +68,22 @@ func parseTransportFilters(r *http.Request) models.TransportFilter {
 		filter.LicensePlate.SetValue(license)
 	}
 	if payloadMin := q.Get("payload_min"); payloadMin != "" {
-		if val, err := strconv.Atoi(payloadMin); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(payloadMin, 10, 32); err == nil && val > 0 {
 			filter.PayloadCapacityMin.SetValue(int32(val))
 		}
 	}
 	if payloadMax := q.Get("payload_max"); payloadMax != "" {
-		if val, err := strconv.Atoi(payloadMax); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(payloadMax, 10, 32); err == nil && val > 0 {
 			filter.PayloadCapacityMax.SetValue(int32(val))
 		}
 	}
 	if fuelMin := q.Get("fuel_min"); fuelMin != "" {
-		if val, err := strconv.Atoi(fuelMin); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(fuelMin, 10, 32); err == nil && val > 0 {
 			filter.FuelConsumptionMin.SetValue(int32(val))
 		}
 	}
 	if fuelMax := q.Get("fuel_max"); fuelMax != "" {
-		if val, err := strconv.Atoi(fuelMax); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(fuelMax, 10, 32); err == nil && val > 0 {
 			filter.FuelConsumptionMax.SetValue(int32(val))
 		}
 	}
@@ -92,50 +100,68 @@ func parseTransportFilters(r *http.Request) models.TransportFilter {
 	return filter
 }
 
-// ============================================================================
-// Create
-// ============================================================================
-
 func (h Handler) CreateTransportHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parseTransportCreateForm(r)
-	if hasError != nil {
+	form, err := parseTransportCreateForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding transport", "data", form)
-		ui.TransportsAddContent(form).Render(r.Context(), w)
+		err := ui.TransportsAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render transports add content", "error", err)
+		}
 		return
 	}
 
-	payload, _ := strconv.Atoi(form["payload_capacity"].Value)
-	fuel, _ := strconv.Atoi(form["fuel_consumption"].Value)
+	payload, err := strconv.ParseInt(form["payload_capacity"].Value, 10, 32)
+	if err != nil {
+		slog.Error("can't convert payload capacity to int", "error", err)
+		renderToast(w, r, "error", "Can't create transport", "Invalid payload capacity")
+		return
+	}
+	fuel, err := strconv.ParseInt(form["fuel_consumption"].Value, 10, 32)
+	if err != nil {
+		slog.Error("can't convert fuel consumption to int", "error", err)
+		renderToast(w, r, "error", "Can't create transport", "Invalid fuel consumption")
+		return
+	}
 
-	_, err := h.DB.CreateTransport(r.Context(),db.CreateTransportArgs{
-		Model: form["model"].Value,
-		LicensePlate: form["license_plate"].Value,
+	_, err = h.DB.CreateTransport(r.Context(), db.CreateTransportArgs{
+		Model:           form["model"].Value,
+		LicensePlate:    form["license_plate"].Value,
 		PayloadCapacity: int32(payload),
 		FuelConsumption: int32(fuel),
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrDuplicateLicense) {
 			form["license_plate"] = ui.FormField{Value: form["license_plate"].Value, Err: errors.New("license plate already exists")}
-			ui.TransportsAddContent(form).Render(r.Context(), w)
+			err := ui.TransportsAddContent(form).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render transports add content", "error", err)
+			}
 			return
 		}
 		slog.Error("can't create transport", "error", err)
-		ui.Toast("error", "Can't create transport", "Something went wrong").Render(r.Context(), w)
-		ui.TransportsAddContent(form).Render(r.Context(), w)
+		err := ui.Toast("error", "Can't create transport", "Something went wrong").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render toast message", "error", err)
+		}
+		err = ui.TransportsAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render transports add content", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("adding new transport", "data", form)
-	ui.Toast("success", "Transport created", "Transport successfully created").Render(r.Context(), w)
+	renderToast(w, r, "success", "Transport created", "Transport successfully created")
 	h.GetTransports(w, r)
 }
 
-func parseTransportCreateForm(r *http.Request) (err error, form ui.Form) {
+func parseTransportCreateForm(r *http.Request) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	// Model
@@ -179,87 +205,101 @@ func parseTransportCreateForm(r *http.Request) (err error, form ui.Form) {
 	return
 }
 
-// ============================================================================
-// Read (single transport for sheet)
-// ============================================================================
-
 func (h Handler) GetTransportHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get transport data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get transport data", "Something went wrong")
 		return
 	}
-	transport, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	transport, err := h.DB.GetTransportByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve transport", "error", err, "id", id)
-		ui.Toast("error", "Can't get transport data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get transport data", "Not found")
 		return
 	}
 	slog.Debug("retrieve transport", "transport", transport)
-	ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+	err = ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render transports view sheet content", "error", err)
+	}
 }
-
-// ============================================================================
-// Update
-// ============================================================================
 
 func (h Handler) UpdateTransportHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect transport ID").Render(r.Context(), w)
+		renderToast(w, r, "error", "Error", "Incorrect transport ID")
 		return
 	}
 
-	existing, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	existing, err := h.DB.GetTransportByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive transport", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		return
 	}
 
-	err, form := parseTransportUpdateForm(r, existing)
+	form, err := parseTransportUpdateForm(r, existing)
 	if err != nil {
 		slog.Debug("can't update transport", "form", form, "err", err)
-		ui.TransportsViewSheetContent(existing, form).Render(r.Context(), w)
+		err = ui.TransportsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render transports view sheet content", "error", err)
+		}
 		return
 	}
 
-	payload, _ := strconv.Atoi(form["payload_capacity"].Value)
-	fuel, _ := strconv.Atoi(form["fuel_consumption"].Value)
+	payload, err := strconv.ParseInt(form["payload_capacity"].Value, 10, 32)
+	if err != nil {
+		slog.Error("can't convert payload capacity to int", "error", err)
+		renderToast(w, r, "error", "Can't update transport", "Invalid payload capacity")
+		return
+	}
+	fuel, err := strconv.ParseInt(form["fuel_consumption"].Value, 10, 32)
+	if err != nil {
+		slog.Error("can't convert fuel consumption to int", "error", err)
+		renderToast(w, r, "error", "Can't update transport", "Invalid fuel consumption")
+		return
+	}
 
-	if err := h.DB.UpdateTransport(r.Context(),db.UpdateTransportArgs{
-		TransportID: int32(id),
-		Model: form["model"].Value,
-		LicensePlate: form["license_plate"].Value,
+	if err := h.DB.UpdateTransport(r.Context(), db.UpdateTransportArgs{
+		TransportID:     id,
+		Model:           form["model"].Value,
+		LicensePlate:    form["license_plate"].Value,
 		PayloadCapacity: int32(payload),
 		FuelConsumption: int32(fuel),
 	}); err != nil {
 		if errors.Is(err, db.ErrDuplicateLicense) {
 			form["license_plate"] = ui.FormField{Value: form["license_plate"].Value, Err: errors.New("license plate already exists")}
-			ui.TransportsAddContent(form).Render(r.Context(), w)
+			err = ui.TransportsAddContent(form).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render transports view sheet content", "error", err)
+			}
 			return
 		}
 		slog.Error("can't create transport", "error", err)
-		ui.Toast("error", "Can't create transport", "Something went wrong").Render(r.Context(), w)
-		ui.TransportsAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create transport", "Something went wrong")
+		err = ui.TransportsAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render transports view sheet content", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("update transport", "form data", form)
-	ui.Toast("success", "Transport updated", "Transport successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Transport updated", "Transport successfully updated")
 	h.GetTransportHandler(w, r)
 	h.GetTransports(w, r)
 }
 
-func parseTransportUpdateForm(r *http.Request, existing models.Transport) (err error, form ui.Form) {
+func parseTransportUpdateForm(r *http.Request, existing models.Transport) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	getValue := func(key string, defaultValue string) string {
@@ -310,48 +350,43 @@ func parseTransportUpdateForm(r *http.Request, existing models.Transport) (err e
 	return
 }
 
-// ============================================================================
-// Delete
-// ============================================================================
-
 func (h Handler) DeleteTransportHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
-	if err := h.DB.SoftDeleteTransport(r.Context(), int32(id)); err != nil {
+	if err := h.DB.SoftDeleteTransport(r.Context(), id); err != nil {
 		slog.Error("can't delete transport", "error", err, "id", id)
-		ui.Toast("error", "Can't delete transport", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete transport", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting transport", "transportID", id)
-	ui.Toast("success", "Deleted", "Transport successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Transport successfully deleted")
 	h.GetTransports(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeleteTransportsHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete transports", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete transports", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete transports", "No transports selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete transports", "No transports selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render toast message", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse transport id", "error", err, "id", idStr)
 			continue
@@ -366,26 +401,28 @@ func (h Handler) BulkDeleteTransportsHandler(w http.ResponseWriter, r *http.Requ
 	h.GetTransports(w, r)
 }
 
-// ============================================================================
-// Additional Handlers (optional)
-// ============================================================================
-
 func (h Handler) NewTransportPageHandler(w http.ResponseWriter, r *http.Request) {
-	ui.TransportsAddContent(ui.Form{}).Render(r.Context(), w)
+	err := ui.TransportsAddContent(ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render transports add content", "error", err)
+	}
 }
 
 func (h Handler) EditTransportPageHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get transport data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get transport data", "Something went wrong")
 		return
 	}
-	transport, err := h.DB.GetTransportByID(r.Context(), int32(id))
+	transport, err := h.DB.GetTransportByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve transport", "error", err, "id", id)
-		ui.Toast("error", "Can't get transport data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get transport data", "Not found")
 		return
 	}
-	ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+	err = ui.TransportsViewSheetContent(transport, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render transports view sheet content", "error", err)
+	}
 }

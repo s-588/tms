@@ -43,15 +43,6 @@ func fromProtoDecimal(s string) decimal.Decimal {
 	return d
 }
 
-// toProtoOptionalString converts an Optional[string] to a *string pointer.
-// It returns nil if the optional is not set.
-func toProtoOptionalString(o models.Optional[string]) *string {
-	if o.Set {
-		return &o.Value
-	}
-	return nil
-}
-
 // fromProtoOptionalString converts a *string pointer to an Optional[string].
 // It leaves the optional unset if the pointer is nil.
 func fromProtoOptionalString(p *string) models.Optional[string] {

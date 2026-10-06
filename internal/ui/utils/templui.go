@@ -2,10 +2,10 @@
 package utils
 
 import (
-	"fmt"
-	"time"
-
 	"crypto/rand"
+	"fmt"
+	"maps"
+	"time"
 
 	"github.com/a-h/templ"
 
@@ -42,9 +42,7 @@ func IfElse[T any](condition bool, trueValue T, falseValue T) T {
 func MergeAttributes(attrs ...templ.Attributes) templ.Attributes {
 	merged := templ.Attributes{}
 	for _, attr := range attrs {
-		for k, v := range attr {
-			merged[k] = v
-		}
+		maps.Copy(merged, attr)
 	}
 	return merged
 }

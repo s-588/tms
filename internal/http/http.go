@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/s-588/tms/internal/config"
 	"github.com/s-588/tms/internal/db"
@@ -48,17 +49,28 @@ func (s Server) Start() error {
 		return fmt.Errorf("can't listen on %s: %w", addr, err)
 	}
 
-	if s.Cfg.HTTPS {
-		err = http.ServeTLS(ln, s.mux, "server.crt", "server.key")
-	} else {
-		err = http.Serve(ln, LogMiddleware(s.mux))
+	httpServer := &http.Server{
+		Addr:         addr,
+		Handler:      LogMiddleware(s.mux),
+		ReadTimeout:  time.Duration(s.Cfg.HTTPTimeout) * time.Second,
+		WriteTimeout: time.Duration(s.Cfg.HTTPTimeout) * time.Second,
+		IdleTimeout:  time.Duration(s.Cfg.HTTPTimeout) * time.Second,
 	}
-	return fmt.Errorf("can't serve requests: %w", err)
+
+	if s.Cfg.HTTPS {
+		err = httpServer.ServeTLS(ln, "server.crt", "server.key")
+	} else {
+		err = httpServer.Serve(ln)
+	}
+	return err
 }
 
 func IndexHandler(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("serving home page")
-	ui.Index().Render(r.Context(), w)
+	err := ui.Index().Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 func (s Server) Stop() {

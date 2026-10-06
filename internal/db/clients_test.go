@@ -145,10 +145,7 @@ func testGetClient(t *testing.T, database db.DB) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if !slices.ContainsFunc(cs, func(c models.Client) bool {
-			if reflect.DeepEqual(client, c) {
-				return true
-			}
-			return false
+			return reflect.DeepEqual(client, c)
 		}) {
 			t.Fatalf("slice doesn't contain wanted client; clients %v, want %v",
 				cs, client)
@@ -177,16 +174,14 @@ func testGetClient(t *testing.T, database db.DB) {
 			t.Fatalf("expected no error, got %v", err)
 		}
 		if !slices.ContainsFunc(cs, func(c models.Client) bool {
-			if reflect.DeepEqual(client, c) {
-				return true
-			}
-			return false
+			return reflect.DeepEqual(client, c)
 		}) {
 			t.Fatalf("slice doesn't contain wanted client; clients %v, want %v",
 				cs, client)
 		}
 	})
 }
+
 func createTestClient(t *testing.T, database db.DB, email, phone string) models.Client {
 	t.Helper()
 	ctx := context.Background()
