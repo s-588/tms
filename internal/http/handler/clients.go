@@ -26,11 +26,14 @@ func (h Handler) GetClientsPage(w http.ResponseWriter, r *http.Request) {
 	clients, total, err := h.DB.GetClients(r.Context(), 1, models.ClientFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of clients", "error", err)
-		ui.Toast("error", "Can't render clients page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render clients page", "Something went wrong")
 		return
 	}
 	slog.Debug("clients page", "clients", clients)
-	ui.ClientsPage(clients, page, total, filter).Render(r.Context(), w)
+	err = ui.ClientsPage(clients, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 // GetClients parses id from path; page and models.ClientFilter from
@@ -44,13 +47,16 @@ func (h Handler) GetClients(w http.ResponseWriter, r *http.Request) {
 	clients, total, err := h.DB.GetClients(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of clients", "error", err)
-		ui.Toast("error", "Can't get clients data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get clients data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve clients from database", "filter", filter, "page", page,
 		"total pages", total, "total clients", len(clients))
-	ui.ClientsTable(clients, page, total, filter, true).Render(r.Context(), w)
+	err = ui.ClientsTable(clients, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 // parseClientFilters function parse models.ClientFilter from request url values
@@ -90,7 +96,6 @@ func parseClientFilters(r *http.Request) models.ClientFilter {
 	}
 
 	return filter
-
 }
 
 // GetClientHandler handler parse id from path, retrieve client from database
@@ -99,17 +104,20 @@ func (h Handler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get client data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get client data", "Something went wrong")
 		return
 	}
 	client, err := h.DB.GetClient(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve client", "error", err, "id", id)
-		ui.Toast("error", "Can't get client data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get client data", "Not found")
 		return
 	}
 	slog.Debug("retrieve client", "client", client)
-	ui.ClientsViewSheetContent(client, ui.Form{}).Render(r.Context(), w)
+	err = ui.ClientsViewSheetContent(client, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 // CreateClientHandler handler parse models.Client values from http form,
@@ -117,19 +125,22 @@ func (h Handler) GetClientHandler(w http.ResponseWriter, r *http.Request) {
 // and ClientsCreateForm with errors if user entered incorrect data.
 func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't get parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get parse form", "Invalid form data")
 		return
 	}
 
 	// TODO: add token generation and insertion
-	hasError, form := parseClientForm(r)
-	if hasError != nil {
+	form, err := parseClientForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding client", "data", form)
-		ui.ClientsAddContent(form, true).Render(r.Context(), w)
+		err = ui.ClientsAddContent(form, true).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
-	_, err := h.DB.CreateClient(r.Context(), db.CreateClientArgs{
+	_, err = h.DB.CreateClient(r.Context(), db.CreateClientArgs{
 		Name:  form["name"].Value,
 		Email: form["email"].Value,
 		Phone: form["phone"].Value,
@@ -138,27 +149,42 @@ func (h Handler) CreateClientHandler(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case errors.Is(err, db.ErrDuplicateEmail):
 			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
-			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			err = ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render response", "error", err)
+			}
 			return
 		case errors.Is(err, db.ErrDuplicatePhone):
 			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
-			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			err = ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render response", "error", err)
+			}
 			return
 		default:
 			slog.Error("can't create client", "error", err)
-			ui.Toast("error", "Can't create user", "Something went wrong").Render(r.Context(), w)
-			ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			renderToast(w, r, "error", "Can't create user", "Something went wrong")
+			err = ui.ClientsAddContent(form, true).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render response", "error", err)
+			}
 			return
 		}
 	}
 
 	slog.Debug("adding new client", "data", form)
-	ui.Toast("success", "User created", fmt.Sprintf("User %s successfully created", form["name"].Value)).Render(r.Context(), w)
-	ui.ClientsAddContent(ui.Form{}, true).Render(r.Context(), w)
+	err = ui.Toast("success", "User created", fmt.Sprintf("User %s successfully created", form["name"].Value)).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
+	err = ui.ClientsAddContent(ui.Form{}, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 	h.GetClients(w, r)
 }
 
-func parseClientForm(r *http.Request) (error, ui.Form) {
+func parseClientForm(r *http.Request) (ui.Form, error) {
 	var err error
 	form := make(ui.Form)
 	name := r.PostForm.Get("name")
@@ -195,7 +221,7 @@ func parseClientForm(r *http.Request) (error, ui.Form) {
 		}
 	}
 
-	return err, form
+	return form, err
 }
 
 func checkClientName(name string) error {
@@ -218,7 +244,10 @@ func checkPhone(phone string) (string, error) {
 	s := strings.Builder{}
 	for _, ch := range phone {
 		if unicode.IsDigit(ch) {
-			s.WriteRune(ch)
+			_, err := s.WriteRune(ch)
+			if err != nil {
+				return "", err
+			}
 		}
 	}
 	p, err := phonenumbers.Parse(s.String(), "BY")
@@ -240,13 +269,13 @@ func (h Handler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
 	if err := h.DB.SoftDeleteClient(r.Context(), id); err != nil {
 		slog.Error("can't delete client", "error", err, "id", id)
-		ui.Toast("error", "Can't delete client", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete client", "Something went wrong")
 		return
 	}
 
@@ -259,13 +288,16 @@ func (h Handler) DeleteClient(w http.ResponseWriter, r *http.Request) {
 // http form. Return ClientsTable without deleted records.
 func (h Handler) BulkDeleteClients(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete clients", "No clients selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete clients", "No clients selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
@@ -292,30 +324,33 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect client ID")
+		renderToast(w, r, "error", "Error", "Incorrect client ID")
 		return
 	}
 
 	// TODO: process a not existing client error
 	existing, err := h.DB.GetClient(r.Context(), id)
 	if err != nil {
-		slog.Error("can't recieve client", "error", err)
-		ui.Toast("error", "Internal error", "Something wen wrong")
+		slog.Error("can't receive client", "error", err)
+		renderToast(w, r, "error", "Internal error", "Something wen wrong")
 		h.GetClientHandler(w, r)
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format")
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		h.GetClientHandler(w, r)
 		return
 	}
 
-	err, form := parseClientForm(r)
+	form, err := parseClientForm(r)
 	if err != nil {
 		slog.Debug("can't update clients", "form", form, "err", err)
-		ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		err = ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
@@ -325,31 +360,41 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 		Email:    form["email"].Value,
 		Phone:    form["phone"].Value,
 	}); err != nil {
-		switch {
-		case errors.Is(err, db.ErrDuplicateEmail):
-			form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
-			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
-			return
-		case errors.Is(err, db.ErrDuplicatePhone):
-			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
-			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
-			return
-		case errors.Is(err, db.ErrIncorrectPhone):
-			form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("incorrect phone format")}
-			ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
-			return
-		default:
-			slog.Error("can't update client", "error", err, "id", id)
-			ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
-			h.GetClientHandler(w, r)
-			return
-		}
+		processUpdateClientError(err, form, existing, r, w, id, h)
+		return
 	}
 
 	slog.Debug("update client", "form data", form)
-	ui.Toast("success", "Client updated", "Client successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Client updated", "Client successfully updated")
 	h.GetClientHandler(w, r)
 	h.GetClients(w, r)
+}
+
+func processUpdateClientError(err error, form ui.Form, existing models.Client, r *http.Request, w http.ResponseWriter, id int32, h Handler) {
+	switch {
+	case errors.Is(err, db.ErrDuplicateEmail):
+		form["email"] = ui.FormField{Value: form["email"].Value, Err: errors.New("email already exists")}
+		err = ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
+	case errors.Is(err, db.ErrDuplicatePhone):
+		form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("phone already exists")}
+		err = ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
+	case errors.Is(err, db.ErrIncorrectPhone):
+		form["phone"] = ui.FormField{Value: form["phone"].Value, Err: errors.New("incorrect phone format")}
+		err = ui.ClientsViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
+	default:
+		slog.Error("can't update client", "error", err, "id", id)
+		renderToast(w, r, "error", "Internal error", "something went wrong")
+		h.GetClientHandler(w, r)
+	}
 }
 
 // VerifyEmail handler retrieve token from path and check if it exists in the
@@ -357,18 +402,24 @@ func (h Handler) UpdateClient(w http.ResponseWriter, r *http.Request) {
 func (h Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		ui.Toast("error", "Can't verify email", "Token is required").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't verify email", "Token is required").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	if err := h.DB.VerifyClientEmail(r.Context(), token); err != nil {
 		slog.Error("can't verify email", "error", err, "token", token)
-		ui.Toast("error", "Can't verify email", "Expire or invalid email").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't verify email", "Expire or invalid email")
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Email verified successfully"))
+	_, err := w.Write([]byte("Email verified successfully"))
+	if err != nil {
+		slog.Error("can't write response", "error", err)
+	}
 }
 
 // GetClientOrders handler parse id from path; order filter, limit and offset

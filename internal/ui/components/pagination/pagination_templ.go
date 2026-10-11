@@ -371,7 +371,7 @@ func Link(props ...LinkProps) templ.Component {
 				ID:         p.ID,
 				Href:       p.Href,
 				Size:       button.SizeIcon,
-				Variant:    button.Variant(buttonVariant(p.IsActive)),
+				Variant:    buttonVariant(p.IsActive),
 				Class:      p.Class,
 				Attributes: p.Attributes,
 			}).Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)

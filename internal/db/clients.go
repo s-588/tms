@@ -3,6 +3,8 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -36,8 +38,14 @@ func (db DB) GetClient(ctx context.Context, clientID int32) (models.Client, erro
 		return models.Client{}, parseClientError(err)
 	}
 	orders, err := db.queries.GetClientOrders(ctx, clientID)
+	if err != nil {
+		return models.Client{}, parseClientError(err)
+	}
 	c := convertGeneratedClientToModel(genClient)
 	for _, o := range orders {
+		if o.Grade > math.MaxUint8 || o.Grade < 0 {
+			return models.Client{}, fmt.Errorf("grade contains incorrect value: %d", o.Grade)
+		}
 		c.Orders = append(c.Orders, models.Order{
 			OrderID:     o.OrderID,
 			ClientID:    o.ClientID,
@@ -140,7 +148,6 @@ func (db DB) SetEmailVerificationToken(ctx context.Context, clientID int32, toke
 	return db.queries.SetEmailVerificationToken(ctx, arg)
 }
 
-// conversion helpers
 func convertGeneratedClientToModel(c generated.Client) models.Client {
 	return models.Client{
 		ClientID:             c.ClientID,
@@ -150,10 +157,16 @@ func convertGeneratedClientToModel(c generated.Client) models.Client {
 		EmailToken:           fromStringPtr(c.EmailToken),
 		EmailTokenExpiration: fromPgTimestamptz(c.EmailTokenExpiration),
 		Phone:                c.Phone,
-		Score:                uint8(c.Score),
-		CreatedAt:            fromPgTimestamptz(c.CreatedAt),
-		UpdatedAt:            fromPgTimestamptz(c.UpdatedAt),
-		DeletedAt:            fromPgTimestamptz(c.DeletedAt),
+
+		// No need to check Score value before conversion,
+		// because it is already checked before adding to the database.
+		// Even if it is not, the conversion will not cause any issues,
+		// because the value will be truncated to fit into uint8.
+		Score: uint8(c.Score), //nolint:gosec
+
+		CreatedAt: fromPgTimestamptz(c.CreatedAt),
+		UpdatedAt: fromPgTimestamptz(c.UpdatedAt),
+		DeletedAt: fromPgTimestamptz(c.DeletedAt),
 	}
 }
 
@@ -166,10 +179,15 @@ func convertGeneratedClientRowToModel(row generated.GetClientsRow) models.Client
 		EmailToken:           fromStringPtr(row.EmailToken),
 		EmailTokenExpiration: fromPgTimestamptz(row.EmailTokenExpiration),
 		Phone:                row.Phone,
-		Score:                uint8(row.Score),
-		CreatedAt:            fromPgTimestamptz(row.CreatedAt),
-		UpdatedAt:            fromPgTimestamptz(row.UpdatedAt),
-		DeletedAt:            fromPgTimestamptz(row.DeletedAt),
+
+		// No need to check Score value before conversion,
+		// because it is already checked before adding to the database.
+		// Even if it is not, the conversion will not cause any issues,
+		// because the value will be truncated to fit into uint8.
+		Score:     uint8(row.Score), //nolint:gosec
+		CreatedAt: fromPgTimestamptz(row.CreatedAt),
+		UpdatedAt: fromPgTimestamptz(row.UpdatedAt),
+		DeletedAt: fromPgTimestamptz(row.DeletedAt),
 	}
 }
 
@@ -202,8 +220,7 @@ func parseClientError(err error) error {
 				return ErrDuplicatePhone
 			}
 		case "23514": // check constaint violation
-			switch pgErr.ConstraintName {
-			case "clients_phone_check":
+			if pgErr.ConstraintName == "clients_phone_check" {
 				return ErrIncorrectPhone
 			}
 		}

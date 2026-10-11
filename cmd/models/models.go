@@ -6,11 +6,13 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-type ClientStatus string
-type EmployeeStatus string
-type OrderStatus string
-type InspectionStatus string
-type EmployeeJobTitle string
+type (
+	ClientStatus     string
+	EmployeeStatus   string
+	OrderStatus      string
+	InspectionStatus string
+	EmployeeJobTitle string
+)
 
 const (
 	ClientStatusActive   ClientStatus = "active"
@@ -141,7 +143,7 @@ type Node struct {
 	NodeID    int32
 	Name      string
 	Geom      Point
-	Address string
+	Address   string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt time.Time

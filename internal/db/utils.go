@@ -2,6 +2,8 @@ package db
 
 import (
 	"fmt"
+	"log/slog"
+	"math"
 	"strconv"
 	"time"
 
@@ -55,6 +57,10 @@ func ToInt16PtrFromUint8(o models.Optional[uint8]) *int16 {
 // ToInt16PtrFromInt converts models.Optional[int] to *int16.
 func ToInt16PtrFromInt(o models.Optional[int]) *int16 {
 	if o.Set {
+		if o.Value < math.MinInt16 || o.Value > math.MaxInt16 {
+			slog.Warn("can't convert int to int16, value out of range", "value", o.Value)
+			return nil
+		}
 		v := int16(o.Value)
 		return &v
 	}
@@ -178,6 +184,10 @@ func fromStringPtr(s *string) string {
 // fromInt16PtrToUint8 converts *int16 to uint8, returning 0 if nil.
 func fromInt16PtrToUint8(p *int16) uint8 {
 	if p != nil {
+		if *p < 0 || *p > math.MaxUint8 {
+			slog.Warn("can't convert int16 to uint8, value out of range", "value", *p)
+			return 0
+		}
 		return uint8(*p)
 	}
 	return 0
@@ -195,6 +205,11 @@ func fromInt32PtrToInt(p *int32) int {
 func convertIntSliceToInt32(ids []int) []int32 {
 	result := make([]int32, len(ids))
 	for i, v := range ids {
+		if v < math.MinInt32 || v > math.MaxInt32 {
+			slog.Warn("can't convert int to int32, value out of range", "value", v)
+			result[i] = 0
+			continue
+		}
 		result[i] = int32(v)
 	}
 	return result
@@ -270,7 +285,7 @@ func ToFloat64Ptr(o models.Optional[float64]) *float64 {
 	return nil
 }
 
-func toFloat64(v interface{}) float64 {
+func toFloat64(v any) float64 {
 	switch val := v.(type) {
 	case float64:
 		return val

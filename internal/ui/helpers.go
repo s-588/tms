@@ -11,7 +11,11 @@ func GetClientsFromContext(ctx context.Context) []ListItem {
 	if val == nil {
 		return []ListItem{}
 	}
-	return val.([]ListItem)
+	v, ok := val.([]ListItem)
+	if !ok {
+		return []ListItem{}
+	}
+	return v
 }
 
 func GetEmployeesFromContext(ctx context.Context) []ListItem {
@@ -19,7 +23,11 @@ func GetEmployeesFromContext(ctx context.Context) []ListItem {
 	if val == nil {
 		return []ListItem{}
 	}
-	return val.([]ListItem)
+	v, ok := val.([]ListItem)
+	if !ok {
+		return []ListItem{}
+	}
+	return v
 }
 
 func GetTransportsFromContext(ctx context.Context) []ListItem {
@@ -27,7 +35,11 @@ func GetTransportsFromContext(ctx context.Context) []ListItem {
 	if val == nil {
 		return []ListItem{}
 	}
-	return val.([]ListItem)
+	v, ok := val.([]ListItem)
+	if !ok {
+		return []ListItem{}
+	}
+	return v
 }
 
 func GetPricesFromContext(ctx context.Context) []ListItem {
@@ -35,7 +47,11 @@ func GetPricesFromContext(ctx context.Context) []ListItem {
 	if val == nil {
 		return []ListItem{}
 	}
-	return val.([]ListItem)
+	v, ok := val.([]ListItem)
+	if !ok {
+		return []ListItem{}
+	}
+	return v
 }
 
 func GetNodesFromContext(ctx context.Context) []ListItem {
@@ -43,7 +59,11 @@ func GetNodesFromContext(ctx context.Context) []ListItem {
 	if val == nil {
 		return []ListItem{}
 	}
-	return val.([]ListItem)
+	v, ok := val.([]ListItem)
+	if !ok {
+		return []ListItem{}
+	}
+	return v
 }
 
 func GetFormFromContext(ctx context.Context) Form {
@@ -51,7 +71,11 @@ func GetFormFromContext(ctx context.Context) Form {
 	if val == nil {
 		return Form{}
 	}
-	return val.(Form)
+	v, ok := val.(Form)
+	if !ok {
+		return Form{}
+	}
+	return v
 }
 
 func GetFilterFromContext(ctx context.Context) models.OrderFilter {
@@ -59,5 +83,9 @@ func GetFilterFromContext(ctx context.Context) models.OrderFilter {
 	if val == nil {
 		return models.OrderFilter{}
 	}
-	return val.(models.OrderFilter)
+	v, ok := val.(models.OrderFilter)
+	if !ok {
+		return models.OrderFilter{}
+	}
+	return v
 }

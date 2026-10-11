@@ -23,7 +23,13 @@ func main() {
 		slog.Error("can't start app", "error", err)
 		return
 	}
-	defer closeLogFile()
+	defer func() {
+		err := closeLogFile()
+		if err != nil {
+			slog.Error("can't close log file", "error", err)
+		}
+	}()
+
 	slog.Info("slog configured")
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)

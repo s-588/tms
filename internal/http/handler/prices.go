@@ -25,10 +25,13 @@ func (h Handler) GetPricesPage(w http.ResponseWriter, r *http.Request) {
 	prices, total, err := h.DB.GetPrices(r.Context(), 1, models.PriceFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of prices", "error", err)
-		ui.Toast("error", "Can't render prices page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render prices page", "Something went wrong")
 		return
 	}
-	ui.PricesPage(prices, page, total, filter).Render(r.Context(), w)
+	err = ui.PricesPage(prices, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render prices page", "error", err)
+	}
 }
 
 func (h Handler) GetPrices(w http.ResponseWriter, r *http.Request) {
@@ -38,18 +41,17 @@ func (h Handler) GetPrices(w http.ResponseWriter, r *http.Request) {
 	prices, total, err := h.DB.GetPrices(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of prices", "error", err)
-		ui.Toast("error", "Can't get prices data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get prices data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve prices from database", "filter", filter, "page", page,
 		"total pages", total, "total prices", len(prices))
-	ui.PricesTable(prices, page, total, filter, true).Render(r.Context(), w)
+	err = ui.PricesTable(prices, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render prices table", "error", err)
+	}
 }
-
-// ============================================================================
-// Filter Parsing
-// ============================================================================
 
 func parsePriceFilters(r *http.Request) models.PriceFilter {
 	filter := models.PriceFilter{}
@@ -59,22 +61,22 @@ func parsePriceFilters(r *http.Request) models.PriceFilter {
 		filter.CargoType.SetValue(cargo)
 	}
 	if weightMin := q.Get("weight_min"); weightMin != "" {
-		if val, err := strconv.Atoi(weightMin); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(weightMin, 10, 32); err == nil && val > 0 {
 			filter.WeightMin.SetValue(int32(val))
 		}
 	}
 	if weightMax := q.Get("weight_max"); weightMax != "" {
-		if val, err := strconv.Atoi(weightMax); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(weightMax, 10, 32); err == nil && val > 0 {
 			filter.WeightMax.SetValue(int32(val))
 		}
 	}
 	if distMin := q.Get("distance_min"); distMin != "" {
-		if val, err := strconv.Atoi(distMin); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(distMin, 10, 32); err == nil && val > 0 {
 			filter.DistanceMin.SetValue(int32(val))
 		}
 	}
 	if distMax := q.Get("distance_max"); distMax != "" {
-		if val, err := strconv.Atoi(distMax); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(distMax, 10, 32); err == nil && val > 0 {
 			filter.DistanceMax.SetValue(int32(val))
 		}
 	}
@@ -91,52 +93,73 @@ func parsePriceFilters(r *http.Request) models.PriceFilter {
 	return filter
 }
 
-// ============================================================================
-// Create
-// ============================================================================
-
 func (h Handler) CreatePriceHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parsePriceCreateForm(r)
-	if hasError != nil {
+	form, err := parsePriceCreateForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding price", "data", form)
-		ui.PricesAddContent(form).Render(r.Context(), w)
+		err := ui.PricesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices add form", "error", err)
+		}
 		return
 	}
 
 	// Convert form values
-	weight, _ := decimal.NewFromString(form["weight"].Value)
-	distance, _ := decimal.NewFromString(form["distance"].Value)
+	weight, err := decimal.NewFromString(form["weight"].Value)
+	if err != nil {
+		slog.Error("invalid weight value", "error", err, "value", form["weight"].Value)
+		renderToast(w, r, "error", "Invalid weight value", "Weight must be a valid decimal")
+		err = ui.PricesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices add form", "error", err)
+		}
+		return
+	}
+	distance, err := decimal.NewFromString(form["distance"].Value)
+	if err != nil {
+		slog.Error("invalid distance value", "error", err, "value", form["distance"].Value)
+		renderToast(w, r, "error", "Invalid distance value", "Distance must be a valid decimal")
+		err = ui.PricesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices add form", "error", err)
+		}
+		return
+	}
 
-	_, err := h.DB.CreatePrice(r.Context(), db.CreatePriceArgs{
+	_, err = h.DB.CreatePrice(r.Context(), db.CreatePriceArgs{
 		CargoType: form["cargo_type"].Value,
 		Weight:    weight,
 		Distance:  distance,
 	})
 	if err != nil {
 		if errors.Is(err, db.ErrDuplicatePrice) {
-			// We can attach the error to any field, or create a general error message
-			// Let's attach it to cargo_type for simplicity
 			form["cargo_type"] = ui.FormField{Value: form["cargo_type"].Value, Err: errors.New("price configuration already exists")}
-			ui.PricesAddContent(form).Render(r.Context(), w)
+			err = ui.PricesAddContent(form).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render prices add form", "error", err)
+			}
 			return
 		}
 		slog.Error("can't create price", "error", err)
-		ui.Toast("error", "Can't create price", "Something went wrong").Render(r.Context(), w)
-		ui.PricesAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create price", "Something went wrong")
+		err = ui.PricesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices add form", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("adding new price", "data", form)
-	ui.Toast("success", "Price created", "Price configuration successfully created").Render(r.Context(), w)
-	h.GetPrices(w, r) // refresh table
+	renderToast(w, r, "success", "Price created", "Price configuration successfully created")
+	h.GetPrices(w, r)
 }
 
-func parsePriceCreateForm(r *http.Request) (err error, form ui.Form) {
+func parsePriceCreateForm(r *http.Request) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	// Cargo Type
@@ -186,54 +209,62 @@ func (h Handler) GetPriceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get price data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get price data", "Something went wrong")
 		return
 	}
-	price, err := h.DB.GetPriceByID(r.Context(), int32(id))
+	price, err := h.DB.GetPriceByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve price", "error", err, "id", id)
-		ui.Toast("error", "Can't get price data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get price data", "Not found")
 		return
 	}
 	slog.Debug("retrieve price", "price", price)
-	ui.PricesViewSheetContent(price, ui.Form{}).Render(r.Context(), w)
+	err = ui.PricesViewSheetContent(price, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render prices view sheet", "error", err)
+	}
 }
-
-// ============================================================================
-// Update
-// ============================================================================
 
 func (h Handler) UpdatePriceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect price ID").Render(r.Context(), w)
+		renderToast(w, r, "error", "Error", "Incorrect price ID")
 		return
 	}
 
-	existing, err := h.DB.GetPriceByID(r.Context(), int32(id))
+	existing, err := h.DB.GetPriceByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive price", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		return
 	}
 
-	err, form := parsePriceUpdateForm(r, existing)
+	form, err := parsePriceUpdateForm(r, existing)
 	if err != nil {
-		slog.Debug("can't update price", "form", form, "err", err)
-		ui.PricesViewSheetContent(existing, form).Render(r.Context(), w)
+		slog.Debug("can't update price", "form", form, "error", err)
+		err = ui.PricesViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices view sheet", "error", err)
+		}
 		return
 	}
 
 	// Convert form values
-	weight, _ := decimal.NewFromString(form["weight"].Value)
-	distance, _ := decimal.NewFromString(form["distance"].Value)
+	weight, err := decimal.NewFromString(form["weight"].Value)
+	if err != nil {
+		slog.Error("can't parse weight", "error", err)
+	}
+	distance, err := decimal.NewFromString(form["distance"].Value)
+	if err != nil {
+		slog.Error("can't parse distance", "error", err)
+	}
 
 	if err := h.DB.UpdatePrice(r.Context(), db.UpdatePriceArgs{
 		PriceID:   id,
@@ -245,22 +276,28 @@ func (h Handler) UpdatePriceHandler(w http.ResponseWriter, r *http.Request) {
 			// We can attach the error to any field, or create a general error message
 			// Let's attach it to cargo_type for simplicity
 			form["cargo_type"] = ui.FormField{Value: form["cargo_type"].Value, Err: errors.New("price configuration already exists")}
-			ui.PricesAddContent(form).Render(r.Context(), w)
+			err = ui.PricesAddContent(form).Render(r.Context(), w)
+			if err != nil {
+				slog.Error("can't render prices add content", "error", err)
+			}
 			return
 		}
 		slog.Error("can't create price", "error", err)
-		ui.Toast("error", "Can't create price", "Something went wrong").Render(r.Context(), w)
-		ui.PricesAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create price", "Something went wrong")
+		err = ui.PricesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render prices add content", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("update price", "form data", form)
-	ui.Toast("success", "Price updated", "Price configuration successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Price updated", "Price configuration successfully updated")
 	h.GetPriceHandler(w, r) // refresh sheet
 	h.GetPrices(w, r)       // refresh table
 }
 
-func parsePriceUpdateForm(r *http.Request, existing models.Price) (err error, form ui.Form) {
+func parsePriceUpdateForm(r *http.Request, existing models.Price) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	// Helper to get value or default
@@ -318,40 +355,39 @@ func (h Handler) DeletePriceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
-	if err := h.DB.SoftDeletePrice(r.Context(), int32(id)); err != nil {
+	if err := h.DB.SoftDeletePrice(r.Context(), id); err != nil {
 		slog.Error("can't delete price", "error", err, "id", id)
-		ui.Toast("error", "Can't delete price", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete price", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting price", "priceID", id)
-	ui.Toast("success", "Deleted", "Price configuration successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Price configuration successfully deleted")
 	h.GetPrices(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeletePricesHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete prices", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete prices", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete prices", "No prices selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete prices", "No prices selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render toast message", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse price id", "error", err, "id", idStr)
 			continue
@@ -366,11 +402,10 @@ func (h Handler) BulkDeletePricesHandler(w http.ResponseWriter, r *http.Request)
 	h.GetPrices(w, r)
 }
 
-// ============================================================================
-// Additional Handlers (optional)
-// ============================================================================
-
 // NewPricePageHandler renders the add price form (for direct access if needed)
 func (h Handler) NewPricePageHandler(w http.ResponseWriter, r *http.Request) {
-	ui.PricesAddContent(ui.Form{}).Render(r.Context(), w)
+	err := ui.PricesAddContent(ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render prices add content", "error", err)
+	}
 }

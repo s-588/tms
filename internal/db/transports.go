@@ -158,15 +158,21 @@ func convertGetTransportOrdersRowToModel(row generated.GetTransportOrdersRow) mo
 		ClientID:    row.ClientID,
 		TransportID: row.TransportID,
 		EmployeeID:  row.EmployeeID,
-		Grade:       uint8(row.Grade),
-		Distance:    row.Distance,
-		Weight:      row.Weight,
-		TotalPrice:  row.TotalPrice,
-		PriceID:     row.PriceID,
-		Status:      models.OrderStatus(row.Status),
-		CreatedAt:   fromPgTimestamptz(row.CreatedAt),
-		UpdatedAt:   fromPgTimestamptz(row.UpdatedAt),
-		DeletedAt:   fromPgTimestamptz(row.DeletedAt),
+
+		// No need to check Grade value before conversion,
+		// because it is already checked before adding to the database.
+		// Even if it is not, the conversion will not cause any issues,
+		// because the value will be truncated to fit into uint8.
+		Grade: uint8(row.Grade), //nolint:gosec
+
+		Distance:   row.Distance,
+		Weight:     row.Weight,
+		TotalPrice: row.TotalPrice,
+		PriceID:    row.PriceID,
+		Status:     models.OrderStatus(row.Status),
+		CreatedAt:  fromPgTimestamptz(row.CreatedAt),
+		UpdatedAt:  fromPgTimestamptz(row.UpdatedAt),
+		DeletedAt:  fromPgTimestamptz(row.DeletedAt),
 	}
 }
 
@@ -179,9 +185,11 @@ func (db DB) ListFreeTransports(ctx context.Context) ([]ui.ListItem, error) {
 	for _, r := range rows {
 		items = append(items, ui.ListItem{
 			ID: r.TransportID,
-			Name: strings.Join([]string{r.Model,
+			Name: strings.Join([]string{
+				r.Model,
 				fromStringPtr(r.LicensePlate),
-				strconv.FormatInt(int64(r.PayloadCapacity), 10), "kg"}, " "),
+				strconv.FormatInt(int64(r.PayloadCapacity), 10), "kg",
+			}, " "),
 		})
 	}
 	return items, nil

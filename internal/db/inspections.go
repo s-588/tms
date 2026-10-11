@@ -139,23 +139,3 @@ func convertGeneratedInspectionRowToModel(row generated.GetInspectionsRow) model
 		DeletedAt:            fromPgTimestamptz(row.DeletedAt),
 	}
 }
-
-func inspectionStatusToNullGenerated(o models.Optional[models.InspectionStatus]) generated.NullInspectionStatus {
-	if !o.Set {
-		return generated.NullInspectionStatus{Valid: false}
-	}
-	return generated.NullInspectionStatus{
-		InspectionStatus: generated.InspectionStatus(o.Value),
-		Valid:            true,
-	}
-}
-
-func inspectionStatusPtrToNullGenerated(p *models.InspectionStatus) generated.NullInspectionStatus {
-	if p == nil {
-		return generated.NullInspectionStatus{Valid: false}
-	}
-	return generated.NullInspectionStatus{
-		InspectionStatus: generated.InspectionStatus(*p),
-		Valid:            true,
-	}
-}

@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/s-588/tms/internal/db"
-	
 )
 
 type Handler struct {
@@ -22,7 +21,7 @@ func NewHandler(db db.DB) Handler {
 func parseIDFromReq(r *http.Request) (int32, error) {
 	idStr := r.PathValue("id")
 	if idStr != "" {
-		id, err := strconv.ParseInt(idStr,10,32)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			return 0, fmt.Errorf("can't parse ID from path: %w", err)
 		}

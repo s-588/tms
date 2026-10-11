@@ -126,31 +126,6 @@ func (db DB) BulkHardDeleteNodes(ctx context.Context, nodeIDs []int32) error {
 	return db.queries.BulkHardDeleteNodes(ctx, nodeIDs)
 }
 
-func convertGeneratedNodeToModel(n generated.Node) models.Node {
-	var orbPt orb.Point
-	geom, err := wkb.Unmarshal(n.Geom)
-	if err != nil {
-		slog.Error("can't unmarshal node from database", "node", n)
-		orbPt = orb.Point{}
-	}
-	if point, ok := geom.(orb.Point); ok {
-		orbPt = point
-	} else {
-		slog.Error("can't convert node geometry to point", "node", n)
-	}
-	return models.Node{
-		NodeID: n.NodeID,
-		Name:   fromStringPtr(n.Name),
-		Geom: models.Point{
-			Y: orbPt.Y(),
-			X: orbPt.X(),
-		},
-		CreatedAt: fromPgTimestamptz(n.CreatedAt),
-		UpdatedAt: fromPgTimestamptz(n.UpdatedAt),
-		DeletedAt: fromPgTimestamptz(n.DeletedAt),
-	}
-}
-
 func convertCreateNodeRowToModel(n generated.CreateNodeRow) models.Node {
 	var orbPt orb.Point
 

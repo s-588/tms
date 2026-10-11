@@ -641,7 +641,7 @@ func TestToFloat64Ptr(t *testing.T) {
 
 func Test_toFloat64(t *testing.T) {
 	type args struct {
-		v interface{}
+		v any
 	}
 	tests := []struct {
 		name string

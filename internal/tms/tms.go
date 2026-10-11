@@ -15,9 +15,7 @@ const (
 	k = 3.0
 )
 
-var (
-	fuelPricePerLiter = decimal.NewFromFloat(2.99)
-)
+var fuelPricePerLiter = decimal.NewFromFloat(2.99)
 
 func CalculateClientDiscount(ctx context.Context, clientID int32, db db.DB) (float64, error) {
 	total, canceled, err := db.CountClientsOrders(ctx, clientID)
@@ -69,7 +67,7 @@ func CalculateOrderCost(ctx context.Context, db db.DB, args CalculateOrderCostAr
 	slog.Debug("distance", slog.String("h_km", h.String()))
 
 	// 2. Conversion to tons
-	wKg := decimal.NewFromInt(int64(args.Weight))
+	wKg := decimal.NewFromInt(args.Weight)
 	vKg := decimal.NewFromInt(int64(args.PayloadCapacity))
 	w := wKg.Div(decimal.NewFromInt(1000))
 	v := vKg.Div(decimal.NewFromInt(1000))
@@ -112,6 +110,10 @@ func CalculateOrderCost(ctx context.Context, db db.DB, args CalculateOrderCostAr
 		slog.String("C_fuel_final", C.String()),
 	)
 	price, err := db.GetPriceByID(ctx, args.PriceID)
+	if err != nil {
+		slog.Error("failed to get price configuration", "error", err)
+		return decimal.Decimal{}, fmt.Errorf("get price configuration: %w", err)
+	}
 
 	// 4. Additions: C * Kh * Kw * Kx
 	Kh := price.Distance // distance-based cost ratio

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
@@ -35,9 +36,10 @@ type LoggerConfig struct {
 }
 
 type ServerConfig struct {
-	HTTPPort string
-	GRPCPort string
-	HTTPS    bool
+	HTTPPort    string
+	GRPCPort    string
+	HTTPS       bool
+	HTTPTimeout int
 }
 
 type DBConfig struct {
@@ -102,8 +104,9 @@ func parseDBCfg() (DBConfig, error) {
 
 func parseServerCfg() (ServerConfig, error) {
 	cfg := ServerConfig{
-		HTTPPort: os.Getenv("HTTP_SERVER_PORT"),
-		GRPCPort: os.Getenv("GRPC_SERVER_PORT"),
+		HTTPPort:    os.Getenv("HTTP_SERVER_PORT"),
+		GRPCPort:    os.Getenv("GRPC_SERVER_PORT"),
+		HTTPTimeout: parseTimeout(os.Getenv("HTTP_TIMEOUT")),
 	}
 	https := os.Getenv("SERVER_HTTPS")
 	if https == "1" || https == "true" || https == "yes" || https == "y" {
@@ -116,8 +119,22 @@ func parseServerCfg() (ServerConfig, error) {
 	if cfg.GRPCPort == "" {
 		cfg.GRPCPort = DefaultServerConfig.GRPCPort
 	}
+	if cfg.HTTPTimeout == 0 {
+		cfg.HTTPTimeout = DefaultServerConfig.HTTPTimeout
+	}
 
 	return cfg, nil
+}
+
+func parseTimeout(timeoutStr string) int {
+	if timeoutStr == "" {
+		return 0
+	}
+	timeout, err := strconv.ParseInt(timeoutStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return int(timeout)
 }
 
 func parseLoggerCfg() (LoggerConfig, error) {

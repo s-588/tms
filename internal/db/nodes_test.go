@@ -204,6 +204,7 @@ func testCalculateDistance(t *testing.T, database db.DB) {
 		}
 	})
 }
+
 func createTestNode(t *testing.T, database db.DB, name string, x, y float64) models.Node {
 	t.Helper()
 	ctx := context.Background()

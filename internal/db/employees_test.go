@@ -200,6 +200,7 @@ func testListFreeDrivers(t *testing.T, database db.DB) {
 		}
 	})
 }
+
 func createTestEmployee(t *testing.T, database db.DB, name string) models.Employee {
 	t.Helper()
 	ctx := context.Background()

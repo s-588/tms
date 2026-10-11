@@ -137,6 +137,7 @@ func convertGeneratedPriceRowToModel(row generated.GetPricesRow) models.Price {
 		DeletedAt: fromPgTimestamptz(row.DeletedAt),
 	}
 }
+
 func (db DB) ListPrices(ctx context.Context) ([]ui.ListItem, error) {
 	rows, err := db.queries.ListPrices(ctx)
 	if err != nil {

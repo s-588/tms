@@ -176,7 +176,7 @@ templ ClientsViewSheetContent(client models.Client, formData Form) {
 					<h3 class="font-semibold text-lg">Client Score</h3>
 					<div class="flex items-center gap-2">
 						<div class="w-24 bg-muted rounded-full h-2">
-							<div class="bg-primary h-2 rounded-full" style={ "width: " + strconv.FormatInt(int64(client.Score),10) + "%" }></div>
+							<div class="bg-primary h-2 rounded-full" style={ "width: " + strconv.FormatInt(int64(client.Score), 10) + "%" }></div>
 						</div>
 						<span class="text-sm font-medium">{ strconv.FormatInt(int64(client.Score),10) }/100</span>
 					</div>
@@ -496,7 +496,7 @@ templ ClientsFilter(filter models.ClientFilter) {
 						ID: "filter-sort-by",
 					}) {
 						@selectbox.Trigger(selectbox.TriggerProps{
-						Name: "sort",
+							Name: "sort",
 						}) {
 							@selectbox.Value(selectbox.ValueProps{
 								Placeholder: "Select column",
@@ -569,137 +569,137 @@ templ clientsOperationsBar(addErrs Form) {
 }
 
 templ ClientsAddDialog(errs Form) {
-		@dialog.Dialog(dialog.Props{
-			ID: "clients-add-dialog",
-		}) {
-			@dialog.Trigger() {
-				@button.Button(button.Props{
-					Variant: button.VariantOutline,
-				}) {
-					Add client
-				}
-			}
-			@dialog.Content(dialog.ContentProps{
-				Class: "max-w-md",
+	@dialog.Dialog(dialog.Props{
+		ID: "clients-add-dialog",
+	}) {
+		@dialog.Trigger() {
+			@button.Button(button.Props{
+				Variant: button.VariantOutline,
 			}) {
-				@dialog.Header() {
-					@dialog.Title() {
-						Add client
-					}
-					@dialog.Description() {
-						Add a new client. Click "Add" when your done.
-					}
-					@ClientsAddContent(errs,false)
-				}
+				Add client
 			}
 		}
+		@dialog.Content(dialog.ContentProps{
+			Class: "max-w-md",
+		}) {
+			@dialog.Header() {
+				@dialog.Title() {
+					Add client
+				}
+				@dialog.Description() {
+					Add a new client. Click "Add" when your done.
+				}
+				@ClientsAddContent(errs, false)
+			}
+		}
+	}
 }
 
 templ ClientsAddContent(userForm Form, swap bool) {
-if swap {
-<div hx-swap-oob="true" id="clients-add-content">
-	@clientsRealAddContent(userForm)
-</div>
-}else{
-<div id="clients-add-content">
-	@clientsRealAddContent(userForm)
-</div>
-}
+	if swap {
+		<div hx-swap-oob="true" id="clients-add-content">
+			@clientsRealAddContent(userForm)
+		</div>
+	} else {
+		<div id="clients-add-content">
+			@clientsRealAddContent(userForm)
+		</div>
+	}
 }
 
-templ clientsRealAddContent(userForm Form){
-		<form
-			hx-post="/clients"
-			hx-push-url="true"
-			class="flex gap-6 flex-col"
-		>
-			@form.Item(form.ItemProps{
-				Class: "gap-4",
+templ clientsRealAddContent(userForm Form) {
+	<form
+		hx-post="/clients"
+		hx-push-url="true"
+		class="flex gap-6 flex-col"
+	>
+		@form.Item(form.ItemProps{
+			Class: "gap-4",
+		}) {
+			@form.Label(form.LabelProps{
+				For: "client-add-name",
 			}) {
-				@form.Label(form.LabelProps{
-					For: "client-add-name",
+				Name
+			}
+			{{ nameField := userForm["name"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-name",
+				Name:        "name",
+				Value:       nameField.Value,
+				Type:        input.TypeText,
+				Placeholder: "John Doe",
+				HasError:    nameField.Err != nil,
+			})
+			@form.Description() {
+				Enter full client's name.
+			}
+			if nameField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
 				}) {
-					Name
-				}
-				{{ nameField := userForm["name"] }}
-				@input.Input(input.Props{
-					ID:          "clients-add-name",
-					Name:        "name",
-					Value:       nameField.Value,
-					Type:        input.TypeText,
-					Placeholder: "John Doe",
-					HasError:    nameField.Err != nil,
-				})
-				@form.Description() {
-					Enter full client's name.
-				}
-				if nameField.Err != nil {
-					@form.Message(form.MessageProps{
-						Variant: form.MessageVariantError,
-					}) {
-						{ nameField.Err.Error() }
-					}
+					{ nameField.Err.Error() }
 				}
 			}
-			@form.Item() {
-				@form.Label(form.LabelProps{
-					For: "client-add-email",
-				}) {
-					Email
-				}
-				{{ emailField := userForm["email"] }}
-				@input.Input(input.Props{
-					ID:          "clients-add-email",
-					Type:        input.TypeEmail,
-					Name:        "email",
-					Value:       emailField.Value,
-					Placeholder: "email@email.com",
-					HasError:    emailField.Err != nil,
-				})
-				@form.Description() {
-					Enter client's email for notifications.
-				}
-				if emailField.Err != nil {
-					@form.Message(form.MessageProps{
-						Variant: form.MessageVariantError,
-					}) {
-						{ emailField.Err.Error() }
-					}
-				}
-			}
-			@form.Item() {
-				@form.Label(form.LabelProps{
-					For: "client-add-phone",
-				}) {
-					Phone
-				}
-				{{ phoneField := userForm["phone"] }}
-				@input.Input(input.Props{
-					ID:          "clients-add-phone",
-					Type:        input.TypeTel,
-					Name:        "phone",
-					Value:       phoneField.Value,
-					Placeholder: "+375293895655",
-					HasError:    phoneField.Err != nil,
-				})
-				@form.Description() {
-					Enter client's phone number.
-				}
-				if phoneField.Err != nil {
-					@form.Message(form.MessageProps{
-						Variant: form.MessageVariantError,
-					}) {
-						{ phoneField.Err.Error() }
-					}
-				}
-			}
-			@button.Button(button.Props{
-				Type:    button.TypeSubmit,
-				Variant: button.VariantDefault,
+		}
+		@form.Item() {
+			@form.Label(form.LabelProps{
+				For: "client-add-email",
 			}) {
-				Add
+				Email
 			}
-		</form>
+			{{ emailField := userForm["email"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-email",
+				Type:        input.TypeEmail,
+				Name:        "email",
+				Value:       emailField.Value,
+				Placeholder: "email@email.com",
+				HasError:    emailField.Err != nil,
+			})
+			@form.Description() {
+				Enter client's email for notifications.
+			}
+			if emailField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
+				}) {
+					{ emailField.Err.Error() }
+				}
+			}
+		}
+		@form.Item() {
+			@form.Label(form.LabelProps{
+				For: "client-add-phone",
+			}) {
+				Phone
+			}
+			{{ phoneField := userForm["phone"] }}
+			@input.Input(input.Props{
+				ID:          "clients-add-phone",
+				Type:        input.TypeTel,
+				Name:        "phone",
+				Value:       phoneField.Value,
+				Placeholder: "+375293895655",
+				HasError:    phoneField.Err != nil,
+			})
+			@form.Description() {
+				Enter client's phone number.
+			}
+			if phoneField.Err != nil {
+				@form.Message(form.MessageProps{
+					Variant: form.MessageVariantError,
+				}) {
+					{ phoneField.Err.Error() }
+				}
+			}
+		}
+		@button.Button(button.Props{
+			Type:    button.TypeSubmit,
+			Variant: button.VariantDefault,
+		}) {
+			Add
+		}
+	</form>
 }
 
 templ ClientsPagination(page, totalPages int32, filter models.ClientFilter) {

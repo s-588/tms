@@ -203,6 +203,7 @@ func testBulkHardDeleteInsurances(t *testing.T, database db.DB) {
 		}
 	})
 }
+
 func createTestInsurance(t *testing.T, database db.DB, transportID int32) models.Insurance {
 	t.Helper()
 	ctx := context.Background()

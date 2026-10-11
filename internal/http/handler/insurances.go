@@ -25,10 +25,13 @@ func (h Handler) GetInsurancesPage(w http.ResponseWriter, r *http.Request) {
 	insurances, total, err := h.DB.GetInsurances(r.Context(), 1, models.InsuranceFilter{})
 	if err != nil {
 		slog.Error("can't retrieve list of insurances", "error", err)
-		ui.Toast("error", "Can't render insurances page", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't render insurances page", "Something went wrong")
 		return
 	}
-	ui.InsurancesPage(insurances, page, total, filter).Render(r.Context(), w)
+	err = ui.InsurancesPage(insurances, page, total, filter).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
 func (h Handler) GetInsurances(w http.ResponseWriter, r *http.Request) {
@@ -38,25 +41,25 @@ func (h Handler) GetInsurances(w http.ResponseWriter, r *http.Request) {
 	insurances, total, err := h.DB.GetInsurances(r.Context(), page, filter)
 	if err != nil {
 		slog.Error("can't retrieve list of insurances", "error", err)
-		ui.Toast("error", "Can't get insurances data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get insurances data", "Something went wrong")
 		return
 	}
 
 	slog.Debug("retrieve insurances from database", "filter", filter, "page", page,
 		"total pages", total, "total insurances", len(insurances))
-	ui.InsurancesTable(insurances, page, total, filter, true).Render(r.Context(), w)
+	err = ui.InsurancesTable(insurances, page, total, filter, true).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
 
-// ============================================================================
-// Filter Parsing
-// ============================================================================
-
+//nolint:funlen,gocyclo // function is clear and understandable
 func parseInsuranceFilters(r *http.Request) models.InsuranceFilter {
 	filter := models.InsuranceFilter{}
 	q := r.URL.Query()
 
 	if transportID := q.Get("transport_id"); transportID != "" {
-		if val, err := strconv.Atoi(transportID); err == nil && val > 0 {
+		if val, err := strconv.ParseInt(transportID, 10, 32); err != nil && val > 0 {
 			filter.TransportID.SetValue(int32(val))
 		}
 	}
@@ -113,48 +116,71 @@ func parseInsuranceFilters(r *http.Request) models.InsuranceFilter {
 	return filter
 }
 
-// ============================================================================
-// Create
-// ============================================================================
-
 func (h Handler) CreateInsuranceHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't parse form", "Invalid form data").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't parse form", "Invalid form data")
 		return
 	}
 
-	hasError, form := parseInsuranceCreateForm(r)
-	if hasError != nil {
+	form, err := parseInsuranceCreateForm(r)
+	if err != nil {
 		slog.Debug("incorrect input data for adding insurance", "data", form)
-		ui.InsurancesAddContent(form).Render(r.Context(), w)
+		err := ui.InsurancesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
-	insuranceDate, _ := time.Parse("2006-01-02", form["insurance_date"].Value)
-	expirationDate, _ := time.Parse("2006-01-02", form["insurance_expiration"].Value)
-	payment, _ := decimal.NewFromString(form["payment"].Value)
-	coverage, _ := decimal.NewFromString(form["coverage"].Value)
+	transportID, err := strconv.ParseInt(form["transport_id"].Value, 10, 32)
+	if err != nil {
+		slog.Error("can't parse transport ID", "error", err)
+		return
+	}
+	insuranceDate, err := time.Parse("2006-01-02", form["insurance_date"].Value)
+	if err != nil {
+		slog.Error("can't parse insurance date", "error", err)
+		return
+	}
+	expirationDate, err := time.Parse("2006-01-02", form["insurance_expiration"].Value)
+	if err != nil {
+		slog.Error("can't parse expiration date", "error", err)
+		return
+	}
+	payment, err := decimal.NewFromString(form["payment"].Value)
+	if err != nil {
+		slog.Error("can't parse payment", "error", err)
+		return
+	}
+	coverage, err := decimal.NewFromString(form["coverage"].Value)
+	if err != nil {
+		slog.Error("can't parse coverage", "error", err)
+		return
+	}
 
-	_, err := h.DB.CreateInsurance(r.Context(), db.CreateInsuranceArgs{
+	_, err = h.DB.CreateInsurance(r.Context(), db.CreateInsuranceArgs{
 		TransportID:         int32(transportID),
 		InsuranceDate:       insuranceDate,
 		InsuranceExpiration: expirationDate,
 		Payment:             payment,
-		Coverage:            coverage})
+		Coverage:            coverage,
+	})
 	if err != nil {
 		slog.Error("can't create insurance", "error", err)
-		ui.Toast("error", "Can't create insurance", "Something went wrong").Render(r.Context(), w)
-		ui.InsurancesAddContent(form).Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't create insurance", "Something went wrong")
+		err = ui.InsurancesAddContent(form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	slog.Debug("adding new insurance", "data", form)
-	ui.Toast("success", "Insurance created", "Insurance successfully created").Render(r.Context(), w)
+	renderToast(w, r, "success", "Insurance created", "Insurance successfully created")
 	h.GetInsurances(w, r)
 }
 
-func parseInsuranceCreateForm(r *http.Request) (err error, form ui.Form) {
+func parseInsuranceCreateForm(r *http.Request) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	// Transport ID
@@ -235,84 +261,83 @@ func parseInsuranceCreateForm(r *http.Request) (err error, form ui.Form) {
 	return
 }
 
-// ============================================================================
-// Read (single insurance for sheet)
-// ============================================================================
-
 func (h Handler) GetInsuranceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Can't get insurance data", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get insurance data", "Something went wrong")
 		return
 	}
-	insurance, err := h.DB.GetInsuranceByID(r.Context(), int32(id))
+	insurance, err := h.DB.GetInsuranceByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't retrieve insurance", "error", err, "id", id)
-		ui.Toast("error", "Can't get insurance data", "Not found").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't get insurance data", "Not found")
 		return
 	}
 	slog.Debug("retrieve insurance", "insurance", insurance)
-	ui.InsurancesViewSheetContent(insurance, ui.Form{}).Render(r.Context(), w)
+	err = ui.InsurancesViewSheetContent(insurance, ui.Form{}).Render(r.Context(), w)
+	if err != nil {
+		slog.Error("can't render response", "error", err)
+	}
 }
-
-// ============================================================================
-// Update
-// ============================================================================
 
 func (h Handler) UpdateInsuranceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Error", "Incorrect insurance ID").Render(r.Context(), w)
+		renderToast(w, r, "error", "Error", "Incorrect insurance ID")
 		return
 	}
 
-	existing, err := h.DB.GetInsuranceByID(r.Context(), int32(id))
+	existing, err := h.DB.GetInsuranceByID(r.Context(), id)
 	if err != nil {
 		slog.Error("can't receive insurance", "error", err)
-		ui.Toast("error", "Internal error", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "Something went wrong")
 		return
 	}
 
 	if err := r.ParseForm(); err != nil {
 		slog.Error("can't parse http form", "error", err)
-		ui.Toast("error", "Bad request", "Invalid form format").Render(r.Context(), w)
+		renderToast(w, r, "error", "Bad request", "Invalid form format")
 		return
 	}
 
-	err, form := parseInsuranceUpdateForm(r, existing)
+	form, err := parseInsuranceUpdateForm(r, existing)
 	if err != nil {
 		slog.Debug("can't update insurance", "form", form, "err", err)
-		ui.InsurancesViewSheetContent(existing, form).Render(r.Context(), w)
+		err = ui.InsurancesViewSheetContent(existing, form).Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
-	transportID, _ := strconv.ParseInt(form["transport_id"].Value,10,32)
+	transportID, _ := strconv.ParseInt(form["transport_id"].Value, 10, 32)
 	insuranceDate, _ := time.Parse("2006-01-02", form["insurance_date"].Value)
 	expirationDate, _ := time.Parse("2006-01-02", form["insurance_expiration"].Value)
 	payment, _ := decimal.NewFromString(form["payment"].Value)
 	coverage, _ := decimal.NewFromString(form["coverage"].Value)
 
 	if err := h.DB.UpdateInsurance(r.Context(), db.UpdateInsuranceArgs{
-    InsuranceID:         int32(id),
-    TransportID:         int32(transportID),
-    InsuranceDate:       insuranceDate,
-    InsuranceExpiration: expirationDate,
-    Payment:             payment,
-    Coverage:            coverage}); err != nil {
+		InsuranceID:         id,
+		TransportID:         int32(transportID),
+		InsuranceDate:       insuranceDate,
+		InsuranceExpiration: expirationDate,
+		Payment:             payment,
+		Coverage:            coverage,
+	}); err != nil {
 		slog.Error("can't update insurance", "error", err, "id", id)
-		ui.Toast("error", "Internal error", "something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Internal error", "something went wrong")
 		return
 	}
 
 	slog.Debug("update insurance", "form data", form)
-	ui.Toast("success", "Insurance updated", "Insurance successfully updated").Render(r.Context(), w)
+	renderToast(w, r, "success", "Insurance updated", "Insurance successfully updated")
 	h.GetInsuranceHandler(w, r)
 	h.GetInsurances(w, r)
 }
 
-func parseInsuranceUpdateForm(r *http.Request, existing models.Insurance) (err error, form ui.Form) {
+func parseInsuranceUpdateForm(r *http.Request, existing models.Insurance) (form ui.Form, err error) {
 	form = make(ui.Form)
 
 	getValue := func(key string, defaultValue string) string {
@@ -400,48 +425,43 @@ func parseInsuranceUpdateForm(r *http.Request, existing models.Insurance) (err e
 	return
 }
 
-// ============================================================================
-// Delete
-// ============================================================================
-
 func (h Handler) DeleteInsuranceHandler(w http.ResponseWriter, r *http.Request) {
 	id, err := parseIDFromReq(r)
 	if err != nil {
 		slog.Error("can't parse id from URL path", "error", err)
-		ui.Toast("error", "Incorrect URL", "Can't parse id from URL path").Render(r.Context(), w)
+		renderToast(w, r, "error", "Incorrect URL", "Can't parse id from URL path")
 		return
 	}
 
-	if err := h.DB.SoftDeleteInsurance(r.Context(), int32(id)); err != nil {
+	if err := h.DB.SoftDeleteInsurance(r.Context(), id); err != nil {
 		slog.Error("can't delete insurance", "error", err, "id", id)
-		ui.Toast("error", "Can't delete insurance", "Something went wrong").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete insurance", "Something went wrong")
 		return
 	}
 
 	slog.Debug("deleting insurance", "insuranceID", id)
-	ui.Toast("success", "Deleted", "Insurance successfully deleted").Render(r.Context(), w)
+	renderToast(w, r, "success", "Deleted", "Insurance successfully deleted")
 	h.GetInsurances(w, r)
 }
 
-// ============================================================================
-// Bulk Delete
-// ============================================================================
-
 func (h Handler) BulkDeleteInsurancesHandler(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		ui.Toast("error", "Can't delete insurances", "Can't parse form").Render(r.Context(), w)
+		renderToast(w, r, "error", "Can't delete insurances", "Can't parse form")
 		return
 	}
 
 	selectedIDs := r.Form["selected_ids"]
 	if len(selectedIDs) == 0 {
-		ui.Toast("error", "Can't delete insurances", "No insurances selected").Render(r.Context(), w)
+		err := ui.Toast("error", "Can't delete insurances", "No insurances selected").Render(r.Context(), w)
+		if err != nil {
+			slog.Error("can't render response", "error", err)
+		}
 		return
 	}
 
 	var ids []int32
 	for _, idStr := range selectedIDs {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 32)
 		if err != nil {
 			slog.Error("can't parse insurance id", "error", err, "id", idStr)
 			continue
@@ -451,6 +471,7 @@ func (h Handler) BulkDeleteInsurancesHandler(w http.ResponseWriter, r *http.Requ
 
 	if err := h.DB.BulkSoftDeleteInsurances(r.Context(), ids); err != nil {
 		slog.Error("can't delete insurances batch", "error", err)
+		renderToast(w, r, "error", "Can't delete insurances", "Something went wrong")
 	}
 
 	h.GetInsurances(w, r)

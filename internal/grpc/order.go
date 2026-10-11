@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"fmt"
+	"math"
 
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db"
@@ -103,9 +105,15 @@ func (s *Server) ListOrders(ctx context.Context, req *pb.ListOrdersRequest) (*pb
 		filter.TotalPriceMax.SetValue(fromProtoDecimal(*req.TotalPriceMax))
 	}
 	if req.GradeMin != nil {
+		if *req.GradeMin < 0 || *req.GradeMin > math.MaxUint8 {
+			return nil, mapError(fmt.Errorf("grade_min must be between 0 and 255"))
+		}
 		filter.GradeMin.SetValue(uint8(*req.GradeMin))
 	}
 	if req.GradeMax != nil {
+		if *req.GradeMax < 0 || *req.GradeMax > math.MaxUint8 {
+			return nil, mapError(fmt.Errorf("grade_max must be between 0 and 255"))
+		}
 		filter.GradeMax.SetValue(uint8(*req.GradeMax))
 	}
 	if req.Status != nil {

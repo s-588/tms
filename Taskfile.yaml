@@ -18,7 +18,7 @@ tasks:
   generate:
     desc: Generate sqlc, templ and protobuf code
     cmds:
-      - cd internal/db && sqlc generate
+      - task: sqlc:generate
       - templ generate
       - task: generate-proto
 
@@ -43,3 +43,30 @@ tasks:
     cmds:
       - docker compose down
       - docker compose up --build -d
+
+  fmt:
+    desc: Format code files
+    cmds:
+      - templ fmt internal/ui/*
+      - golangci-lint fmt ./...
+  
+  check:
+    desc: run linters and checkers
+    cmds:
+      - task: sqlc:check
+      - go vet ./...
+      - golangci-lint run ./...
+
+  sqlc:check:
+    dir: internal/db
+    desc: check sqlc files
+    cmds:
+      - sqlc compile ./...
+      - sqlc vet ./...
+
+  sqlc:generate:
+    dir: internal/db
+    desc: generate sqlc files
+    cmds:
+      - task: sqlc:check
+      - sqlc generate

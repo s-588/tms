@@ -20,8 +20,8 @@ type FormField struct {
 type Form map[string]FormField
 
 type ListItem struct {
-	ID int32
-	Name     string
+	ID   int32
+	Name string
 }
 
 type List map[string][]ListItem

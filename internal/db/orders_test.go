@@ -3,12 +3,20 @@ package db_test
 import (
 	"context"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/s-588/tms/cmd/models"
 	"github.com/s-588/tms/internal/db"
+	"github.com/s-588/tms/internal/testutil"
 	"github.com/shopspring/decimal"
 )
+
+func TestDB_Orders(t *testing.T) {
+	database := testutil.SetupTestDB(t)
+
+	testOrders(t, database)
+}
 
 func testOrders(t *testing.T, database db.DB) {
 	ctx := context.Background()
@@ -117,16 +125,29 @@ func testOrders(t *testing.T, database db.DB) {
 	})
 }
 
+var orderTestC int64
+
 func createTestOrder(t *testing.T, database db.DB) models.Order {
 	t.Helper()
 	ctx := context.Background()
 
-	client := createTestClient(t, database, "order-client@test.test", "+19990000001")
-	transport := createTestTransport(t, database, "ORD1")
+	orderTestC++
+
+	email := "order-client@test.test" + strconv.FormatInt(orderTestC, 10)
+	phone := "+37529389565" + strconv.FormatInt(orderTestC, 10)
+	client := createTestClient(t, database, email, phone)
+
+	plate := "ORD" + strconv.FormatInt(orderTestC, 10)
+	transport := createTestTransport(t, database, plate)
+
 	employee := createTestEmployee(t, database, "Order Employee")
-	price := createTestPrice(t, database, "ORD-CARGO")
-	start := createTestNode(t, database, "ORD-NODE-START", 10, 10)
-	end := createTestNode(t, database, "ORD-NODE-END", 20, 20)
+	price := createTestPrice(t, database, "ORD-CARGO"+strconv.FormatInt(orderTestC, 10))
+
+	startID := "ORD-NODE-START" + strconv.FormatInt(orderTestC, 10)
+	start := createTestNode(t, database, startID, float64(10+orderTestC), 10)
+
+	endID := "ORD-NODE-END" + strconv.FormatInt(orderTestC, 10)
+	end := createTestNode(t, database, endID, float64(20+orderTestC), 20)
 
 	order, err := database.CreateOrder(ctx, db.CreateOrderArg{
 		ClientID:    client.ClientID,
